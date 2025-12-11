@@ -9,6 +9,7 @@ import pandas as pd
 import os
 import time
 from datetime import datetime
+from typing import Optional, Dict
 
 def get_symbol_name(symbol):
     """
@@ -630,25 +631,47 @@ def calculate_growth_metrics(symbol, start_year, end_year):
     if end_year in revenue_values and (end_year - 5) in revenue_values:
         start_revenue = revenue_values[end_year - 5]
         end_revenue = revenue_values[end_year]
-        if start_revenue > 0:
-            # (第N年/第N-5年)^(1/5) - 1
-            cagr_5_revenue = (pow(end_revenue / start_revenue, 1/5) - 1) * 100
-            metrics['最近5年'][0] = round(cagr_5_revenue, 2)
-            print(f"  ✓ 收入最近5年复合增长率: {metrics['最近5年'][0]}%")
+        if start_revenue > 0 and end_revenue > 0:
+            ratio = end_revenue / start_revenue
+            if ratio > 0:
+                try:
+                    # (第N年/第N-5年)^(1/5) - 1
+                    cagr_5_revenue = (pow(ratio, 1/5) - 1) * 100
+                    # 检查是否是复数
+                    if isinstance(cagr_5_revenue, complex):
+                        print(f"  ⚠ 收入最近5年复合增长率计算结果为复数，无法计算")
+                    else:
+                        metrics['最近5年'][0] = round(cagr_5_revenue, 2)
+                        print(f"  ✓ 收入最近5年复合增长率: {metrics['最近5年'][0]}%")
+                except (ValueError, TypeError):
+                    print(f"  ⚠ 收入最近5年复合增长率计算失败")
+            else:
+                print(f"  ⚠ 收入比率为负数，无法计算最近5年复合增长率")
         else:
-            print(f"  ⚠ {end_year - 5} 年收入为0，无法计算最近5年复合增长率")
+            print(f"  ⚠ {end_year - 5} 年或 {end_year} 年收入为0或负数，无法计算最近5年复合增长率")
     else:
         print(f"  ⚠ 缺少必要数据，无法计算收入最近5年复合增长率")
     
     if end_year in profit_values and (end_year - 5) in profit_values:
         start_profit = profit_values[end_year - 5]
         end_profit = profit_values[end_year]
-        if start_profit > 0:
-            cagr_5_profit = (pow(end_profit / start_profit, 1/5) - 1) * 100
-            metrics['最近5年'][1] = round(cagr_5_profit, 2)
-            print(f"  ✓ 归母净利润最近5年复合增长率: {metrics['最近5年'][1]}%")
+        if start_profit > 0 and end_profit > 0:
+            ratio = end_profit / start_profit
+            if ratio > 0:
+                try:
+                    cagr_5_profit = (pow(ratio, 1/5) - 1) * 100
+                    # 检查是否是复数
+                    if isinstance(cagr_5_profit, complex):
+                        print(f"  ⚠ 归母净利润最近5年复合增长率计算结果为复数，无法计算")
+                    else:
+                        metrics['最近5年'][1] = round(cagr_5_profit, 2)
+                        print(f"  ✓ 归母净利润最近5年复合增长率: {metrics['最近5年'][1]}%")
+                except (ValueError, TypeError):
+                    print(f"  ⚠ 归母净利润最近5年复合增长率计算失败")
+            else:
+                print(f"  ⚠ 归母净利润比率为负数，无法计算最近5年复合增长率")
         else:
-            print(f"  ⚠ {end_year - 5} 年归母净利润为0，无法计算最近5年复合增长率")
+            print(f"  ⚠ {end_year - 5} 年或 {end_year} 年归母净利润为0或负数，无法计算最近5年复合增长率")
     else:
         print(f"  ⚠ 缺少必要数据，无法计算归母净利润最近5年复合增长率")
     
@@ -657,25 +680,47 @@ def calculate_growth_metrics(symbol, start_year, end_year):
     if end_year in revenue_values and (end_year - 3) in revenue_values:
         start_revenue = revenue_values[end_year - 3]
         end_revenue = revenue_values[end_year]
-        if start_revenue > 0:
-            # (第N年/第N-3年)^(1/3) - 1
-            cagr_3_revenue = (pow(end_revenue / start_revenue, 1/3) - 1) * 100
-            metrics['最近3年'][0] = round(cagr_3_revenue, 2)
-            print(f"  ✓ 收入最近3年复合增长率: {metrics['最近3年'][0]}%")
+        if start_revenue > 0 and end_revenue > 0:
+            ratio = end_revenue / start_revenue
+            if ratio > 0:
+                try:
+                    # (第N年/第N-3年)^(1/3) - 1
+                    cagr_3_revenue = (pow(ratio, 1/3) - 1) * 100
+                    # 检查是否是复数
+                    if isinstance(cagr_3_revenue, complex):
+                        print(f"  ⚠ 收入最近3年复合增长率计算结果为复数，无法计算")
+                    else:
+                        metrics['最近3年'][0] = round(cagr_3_revenue, 2)
+                        print(f"  ✓ 收入最近3年复合增长率: {metrics['最近3年'][0]}%")
+                except (ValueError, TypeError):
+                    print(f"  ⚠ 收入最近3年复合增长率计算失败")
+            else:
+                print(f"  ⚠ 收入比率为负数，无法计算最近3年复合增长率")
         else:
-            print(f"  ⚠ {end_year - 3} 年收入为0，无法计算最近3年复合增长率")
+            print(f"  ⚠ {end_year - 3} 年或 {end_year} 年收入为0或负数，无法计算最近3年复合增长率")
     else:
         print(f"  ⚠ 缺少必要数据，无法计算收入最近3年复合增长率")
     
     if end_year in profit_values and (end_year - 3) in profit_values:
         start_profit = profit_values[end_year - 3]
         end_profit = profit_values[end_year]
-        if start_profit > 0:
-            cagr_3_profit = (pow(end_profit / start_profit, 1/3) - 1) * 100
-            metrics['最近3年'][1] = round(cagr_3_profit, 2)
-            print(f"  ✓ 归母净利润最近3年复合增长率: {metrics['最近3年'][1]}%")
+        if start_profit > 0 and end_profit > 0:
+            ratio = end_profit / start_profit
+            if ratio > 0:
+                try:
+                    cagr_3_profit = (pow(ratio, 1/3) - 1) * 100
+                    # 检查是否是复数
+                    if isinstance(cagr_3_profit, complex):
+                        print(f"  ⚠ 归母净利润最近3年复合增长率计算结果为复数，无法计算")
+                    else:
+                        metrics['最近3年'][1] = round(cagr_3_profit, 2)
+                        print(f"  ✓ 归母净利润最近3年复合增长率: {metrics['最近3年'][1]}%")
+                except (ValueError, TypeError):
+                    print(f"  ⚠ 归母净利润最近3年复合增长率计算失败")
+            else:
+                print(f"  ⚠ 归母净利润比率为负数，无法计算最近3年复合增长率")
         else:
-            print(f"  ⚠ {end_year - 3} 年归母净利润为0，无法计算最近3年复合增长率")
+            print(f"  ⚠ {end_year - 3} 年或 {end_year} 年归母净利润为0或负数，无法计算最近3年复合增长率")
     else:
         print(f"  ⚠ 缺少必要数据，无法计算归母净利润最近3年复合增长率")
     
@@ -1234,6 +1279,53 @@ def calculate_fixed_asset_metrics(symbol, start_year, end_year):
     
     return result_df
 
+def load_employee_count_from_csv(csv_path: str) -> Dict[int, int]:
+    """
+    从CSV文件中加载员工数量数据
+    
+    参数:
+        csv_path: CSV文件路径（格式：xxxx_员工数量.csv）
+    
+    返回:
+        字典，键为年份，值为员工数量
+    """
+    employee_data = {}
+    
+    if not os.path.exists(csv_path):
+        print(f"  ⚠ CSV文件不存在: {csv_path}")
+        return employee_data
+    
+    try:
+        df = pd.read_csv(csv_path, encoding='utf-8-sig')
+        
+        # 检查列名
+        if '年份' not in df.columns or '员工数量' not in df.columns:
+            print(f"  ⚠ CSV文件格式不正确，需要包含'年份'和'员工数量'列")
+            return employee_data
+        
+        # 读取数据
+        for _, row in df.iterrows():
+            year = row['年份']
+            count = row['员工数量']
+            
+            # 跳过空值
+            if pd.notna(year) and pd.notna(count):
+                try:
+                    year_int = int(year)
+                    count_int = int(count)
+                    employee_data[year_int] = count_int
+                except (ValueError, TypeError):
+                    continue
+        
+        print(f"  ✓ 从CSV文件加载了 {len(employee_data)} 年的员工数量数据")
+        return employee_data
+        
+    except Exception as e:
+        print(f"  ⚠ 读取CSV文件失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return employee_data
+
 def get_employee_count(symbol):
     """
     获取员工人数
@@ -1332,7 +1424,7 @@ def get_employee_count(symbol):
         traceback.print_exc()
         return None
 
-def calculate_per_capita_metrics(symbol, start_year, end_year):
+def calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path: Optional[str] = None):
     """
     计算人均数据指标
     
@@ -1340,6 +1432,7 @@ def calculate_per_capita_metrics(symbol, start_year, end_year):
         symbol: 股票代码
         start_year: 起始年份
         end_year: 结束年份
+        employee_csv_path: 员工数量CSV文件路径（格式：xxxx_员工数量.csv），如果提供则从CSV读取，否则使用接口
     
     返回:
         包含所有人均指标数据的DataFrame
@@ -1355,12 +1448,25 @@ def calculate_per_capita_metrics(symbol, start_year, end_year):
         print("✗ 资产负债表、利润表或现金流量表数据获取不完整，无法计算")
         return None
     
-    # 获取员工人数（使用最新数据，因为接口可能不提供历史数据）
-    symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
-    employee_count = get_employee_count(symbol_clean)
-    if employee_count is None:
-        print("⚠ 无法获取员工人数，人均数据将显示为 '-'")
-        employee_count = None
+    # 获取员工人数
+    employee_data_by_year = {}  # 按年份存储员工数量
+    
+    if employee_csv_path:
+        # 从CSV文件读取员工数量（按年份）
+        print(f"从CSV文件读取员工数量: {employee_csv_path}")
+        employee_data_by_year = load_employee_count_from_csv(employee_csv_path)
+        if not employee_data_by_year:
+            print("⚠ CSV文件中没有有效的员工数量数据，人均数据将显示为 '-'")
+    else:
+        # 使用接口获取员工人数（所有年份使用相同值）
+        symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
+        employee_count = get_employee_count(symbol_clean)
+        if employee_count is None:
+            print("⚠ 无法获取员工人数，人均数据将显示为 '-'")
+        else:
+            # 所有年份使用相同的员工数量
+            for year in range(start_year, end_year + 1):
+                employee_data_by_year[year] = employee_count
     
     # 准备结果数据
     metrics = {
@@ -1398,7 +1504,10 @@ def calculate_per_capita_metrics(symbol, start_year, end_year):
             print(f"  ⚠ {year} 年数据缺失，该年份所有指标显示为 '-'")
             continue
         
-        # 1. 人数（使用获取到的员工人数，所有年份使用相同值）
+        # 获取该年份的员工数量
+        employee_count = employee_data_by_year.get(year)
+        
+        # 1. 人数（使用该年份的员工人数）
         if employee_count is not None:
             metrics[str(year)][0] = employee_count
         else:
@@ -1541,9 +1650,13 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
 
 def main():
     # 指定股票代码和年份范围
-    symbol = "603486"  # 可以修改为其他股票代码
-    start_year = 2013  # 起始年份
-    end_year = 2021     # 结束年份
+    symbol = "600728"  # 可以修改为其他股票代码
+    start_year = 2011  # 起始年份
+    end_year = 2024     # 结束年份
+    
+    # 员工数量CSV文件路径（可选，如果提供则从CSV读取，否则使用接口）
+    # 格式：xxxx_员工数量.csv，例如：600728_员工数量.csv
+    employee_csv_path = r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都\600728_员工数量.csv"  # 例如：r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都\600728_员工数量.csv"
     
     # 生成时间戳（用于文件名，确保所有sheet保存到同一个文件）
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -1645,7 +1758,7 @@ def main():
         print("\n✗ 未能生成固定资产投入分析数据")
     
     # 计算人均数据
-    per_capita_df = calculate_per_capita_metrics(symbol, start_year, end_year)
+    per_capita_df = calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path=employee_csv_path)
     
     if per_capita_df is not None and not per_capita_df.empty:
         # 打印到控制台

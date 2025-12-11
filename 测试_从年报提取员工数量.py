@@ -10,6 +10,7 @@
 
 import os
 import re
+import csv
 import pdfplumber
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
@@ -246,29 +247,15 @@ def is_annual_report_pdf(filename: str) -> bool:
     返回:
         如果是年报PDF返回True，否则返回False
     """
-    filename_lower = filename.lower()
-    
     # 必须是PDF文件
-    if not filename_lower.endswith('.pdf'):
+    if not filename.lower().endswith('.pdf'):
         return False
     
-    # 检查是否包含年报相关关键词
-    annual_keywords = [
-        '年报',
-        '年度报告',
-        'annual report',
-        'annual',
-        '年报告',
-        '年度'
-    ]
+    # 必须包含"年度报告"4个字
+    if '年度报告' not in filename:
+        return False
     
-    has_annual_keyword = any(keyword in filename_lower for keyword in annual_keywords)
-    
-    # 检查是否包含年份（4位数字，通常是2000-2099）
-    has_year = bool(re.search(r'20\d{2}', filename))
-    
-    # 如果包含年报关键词或包含年份，认为是年报PDF
-    return has_annual_keyword or has_year
+    return True
 
 def extract_year_from_filename(filename: str) -> Optional[int]:
     """
@@ -292,13 +279,88 @@ def extract_year_from_filename(filename: str) -> Optional[int]:
     
     return None
 
-def process_directory(directory_path: str, verbose: bool = False) -> List[Tuple[str, Optional[int], Optional[int]]]:
+def extract_stock_code_from_filename(filename: str) -> Optional[str]:
+    """
+    从文件名中提取股票代码
+    
+    参数:
+        filename: 文件名
+    
+    返回:
+        股票代码（字符串），如果未找到返回None
+    """
+    # 常见的股票代码格式：6位数字（A股）
+    # 例如：600519、000001、300750等
+    
+    # 匹配6位数字（可能是股票代码）
+    code_matches = re.findall(r'\b\d{6}\b', filename)
+    
+    if code_matches:
+        # 返回第一个匹配的6位数字
+        return code_matches[0]
+    
+    # 如果没有找到6位数字，尝试从文件名开头提取
+    # 有些文件名可能是：600519_2024年年度报告.pdf
+    basename = os.path.splitext(filename)[0]
+    parts = basename.split('_')
+    if parts:
+        first_part = parts[0]
+        if re.match(r'^\d{6}$', first_part):
+            return first_part
+    
+    return None
+
+def save_to_csv(stock_code: str, results: List[Tuple[int, Optional[int]]], output_dir: str = ".") -> str:
+    """
+    将员工数量数据保存到CSV文件
+    
+    参数:
+        stock_code: 股票代码
+        results: 结果列表，每个元素为 (年份, 员工数量)
+        output_dir: 输出目录
+    
+    返回:
+        CSV文件路径
+    """
+    if not stock_code:
+        stock_code = "未知"
+    
+    # 创建输出目录
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # 生成CSV文件名
+    csv_filename = f"{stock_code}_员工数量.csv"
+    csv_path = os.path.join(output_dir, csv_filename)
+    
+    # 按年份排序
+    sorted_results = sorted(results, key=lambda x: x[0] if x[0] else 0)
+    
+    # 写入CSV文件
+    try:
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+            writer = csv.writer(csvfile)
+            # 写入表头
+            writer.writerow(['年份', '员工数量'])
+            # 写入数据
+            for year, employee_count in sorted_results:
+                count_str = str(employee_count) if employee_count is not None else ""
+                writer.writerow([year, count_str])
+        
+        print(f"  ✓ 数据已保存到: {csv_path}")
+        return csv_path
+    except Exception as e:
+        print(f"  ✗ 保存CSV文件失败: {e}")
+        return ""
+
+def process_directory(directory_path: str, verbose: bool = False, stock_code: Optional[str] = None) -> List[Tuple[str, Optional[int], Optional[int]]]:
     """
     批量处理目录中的年报PDF文件
     
     参数:
         directory_path: 目录路径
         verbose: 是否显示详细信息
+        stock_code: 股票代码（如果为None，会尝试从文件名中提取）
     
     返回:
         结果列表，每个元素为 (文件路径, 年份, 员工数量)
@@ -330,10 +392,24 @@ def process_directory(directory_path: str, verbose: bool = False) -> List[Tuple[
     
     print(f"找到 {len(pdf_files)} 个年报PDF文件\n")
     
+    # 如果未提供股票代码，尝试从第一个文件名中提取
+    if stock_code is None and pdf_files:
+        first_filename = os.path.basename(pdf_files[0])
+        stock_code = extract_stock_code_from_filename(first_filename)
+        if stock_code:
+            print(f"从文件名识别股票代码: {stock_code}\n")
+    
+    # 用于保存CSV的数据（年份，员工数量）
+    csv_data = []
+    
     # 处理每个PDF文件
     for idx, pdf_path in enumerate(pdf_files, 1):
         filename = os.path.basename(pdf_path)
         year = extract_year_from_filename(filename)
+        
+        # 如果还未识别股票代码，尝试从当前文件名提取
+        if stock_code is None:
+            stock_code = extract_stock_code_from_filename(filename)
         
         print(f"[{idx}/{len(pdf_files)}] 处理文件: {filename}")
         if year:
@@ -350,7 +426,27 @@ def process_directory(directory_path: str, verbose: bool = False) -> List[Tuple[
                 print(f"  ✗ 未能提取员工数量")
         
         results.append((pdf_path, year, employee_count))
+        
+        # 收集CSV数据（只保存有年份的数据）
+        if year is not None:
+            csv_data.append((year, employee_count))
+        
         print()  # 空行分隔
+    
+    # 保存到CSV文件
+    if csv_data:
+        print("=" * 80)
+        print("保存数据到CSV文件...")
+        # 如果没有股票代码，使用"未知"作为默认值
+        if not stock_code:
+            stock_code = "未知"
+            print(f"⚠ 未能识别股票代码，使用默认值: {stock_code}")
+        save_to_csv(stock_code, csv_data, output_dir=directory_path)
+        print()
+    elif stock_code:
+        print("=" * 80)
+        print("⚠ 没有可保存的数据（未提取到员工数量或年份）")
+        print()
     
     return results
 
@@ -438,7 +534,7 @@ def main():
         print("=" * 80)
         
         # 批量处理目录中的年报PDF
-        results = process_directory(directory_path, verbose=False)
+        results = process_directory(directory_path, verbose=False, stock_code="600728")
         
         # 打印汇总结果
         if results:
