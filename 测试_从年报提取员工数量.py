@@ -74,7 +74,9 @@ def extract_employee_count_from_pdf(pdf_path: str, verbose: bool = True) -> Opti
                         
                         # 分析每个表格
                         for table_idx, table in enumerate(tables):
-                            employee_count = analyze_table_for_employee_count(table, keywords)
+                            if verbose:
+                                print(f"  分析表格 {table_idx + 1}:")
+                            employee_count = analyze_table_for_employee_count(table, keywords, verbose=verbose)
                             if employee_count is not None:
                                 if verbose:
                                     print(f"  ✓ 在表格 {table_idx + 1} 中找到员工数量: {employee_count}")
@@ -99,13 +101,28 @@ def extract_employee_count_from_pdf(pdf_path: str, verbose: bool = True) -> Opti
         traceback.print_exc()
         return None
 
-def analyze_table_for_employee_count(table: List[List], keywords: List[str]) -> Optional[int]:
+def is_reasonable_employee_count(num: int) -> bool:
+    """
+    判断数字是否是合理的员工数量
+    
+    参数:
+        num: 数字
+    
+    返回:
+        如果合理返回True，否则返回False
+    """
+    # 员工数量通常在 10 到 1000000 之间
+    # 小于10可能是其他数据，大于100万通常不合理
+    return 10 <= num <= 1000000
+
+def analyze_table_for_employee_count(table: List[List], keywords: List[str], verbose: bool = False) -> Optional[int]:
     """
     分析表格，查找员工数量
     
     参数:
         table: 表格数据（二维列表）
         keywords: 关键词列表
+        verbose: 是否显示详细调试信息
     
     返回:
         员工数量（整数），如果未找到返回None
@@ -116,39 +133,157 @@ def analyze_table_for_employee_count(table: List[List], keywords: List[str]) -> 
     # 将表格转换为字符串以便搜索
     table_text = "\n".join(["\t".join([str(cell) if cell else "" for cell in row]) for row in table])
     
-    # 查找包含关键词的行
+    # 存储所有候选数字（用于调试）
+    # 格式：(数字, 来源描述, 优先级)
+    # 优先级：1=合计关键词行, 2=其他关键词行, 3=合计+员工行
+    candidates = []
+    
+    # 优先查找包含"合计"的关键词行（最高优先级）
     for row_idx, row in enumerate(table):
         row_text = " ".join([str(cell) if cell else "" for cell in row])
         
-        # 检查是否包含关键词
+        # 检查是否包含"合计"相关的关键词（最高优先级）
         for keyword in keywords:
-            if keyword in row_text:
-                # 在这一行或下一行查找数字
+            if keyword in row_text and "合计" in keyword:
+                if verbose:
+                    print(f"    找到合计关键词 '{keyword}' 在第 {row_idx + 1} 行（高优先级）")
+                    print(f"    行内容: {row_text[:150]}...")
+                
+                # 在这一行查找数字
                 numbers = extract_numbers_from_row(row)
                 if numbers:
-                    # 通常员工数量是较大的整数（大于10）
-                    for num in numbers:
-                        if isinstance(num, int) and num > 10:
-                            return num
+                    if verbose:
+                        print(f"    当前行找到数字: {numbers}")
+                    # 优先选择该行中最大的合理数字（合计通常是最大的）
+                    valid_numbers = [num for num in numbers if isinstance(num, int) and is_reasonable_employee_count(num)]
+                    if valid_numbers:
+                        # 选择最大的数字（合计行通常包含最大的数字）
+                        max_num = max(valid_numbers)
+                        candidates.append((max_num, f"合计关键词行{row_idx+1}", 1))
+                        if verbose:
+                            print(f"    ✓ 候选数字: {max_num} (来自合计关键词行，优先级1)")
+                        # 如果找到合计关键词行，优先返回（不再查找其他）
+                        # 但继续收集其他候选用于调试
                 
                 # 如果当前行没找到，检查下一行
                 if row_idx + 1 < len(table):
                     next_row = table[row_idx + 1]
                     numbers = extract_numbers_from_row(next_row)
                     if numbers:
-                        for num in numbers:
-                            if isinstance(num, int) and num > 10:
-                                return num
+                        if verbose:
+                            print(f"    下一行找到数字: {numbers}")
+                        valid_numbers = [num for num in numbers if isinstance(num, int) and is_reasonable_employee_count(num)]
+                        if valid_numbers:
+                            max_num = max(valid_numbers)
+                            candidates.append((max_num, f"合计关键词行{row_idx+1}的下一行", 1))
+                            if verbose:
+                                print(f"    ✓ 候选数字: {max_num} (来自下一行，优先级1)")
     
-    # 如果没找到关键词，尝试查找"合计"行
-    for row in table:
+    # 查找其他关键词行（较低优先级）
+    for row_idx, row in enumerate(table):
+        row_text = " ".join([str(cell) if cell else "" for cell in row])
+        
+        # 检查是否包含其他关键词（排除已处理的合计关键词）
+        for keyword in keywords:
+            if keyword in row_text and "合计" not in keyword:
+                if verbose:
+                    print(f"    找到关键词 '{keyword}' 在第 {row_idx + 1} 行")
+                    print(f"    行内容: {row_text[:100]}...")
+                
+                # 在这一行查找数字
+                numbers = extract_numbers_from_row(row)
+                if numbers:
+                    if verbose:
+                        print(f"    当前行找到数字: {numbers}")
+                    for num in numbers:
+                        if isinstance(num, int) and is_reasonable_employee_count(num):
+                            candidates.append((num, f"关键词行{row_idx+1}", 2))
+                            if verbose:
+                                print(f"    ✓ 候选数字: {num} (来自关键词行，优先级2)")
+                
+                # 如果当前行没找到，检查下一行
+                if row_idx + 1 < len(table):
+                    next_row = table[row_idx + 1]
+                    numbers = extract_numbers_from_row(next_row)
+                    if numbers:
+                        if verbose:
+                            print(f"    下一行找到数字: {numbers}")
+                        for num in numbers:
+                            if isinstance(num, int) and is_reasonable_employee_count(num):
+                                candidates.append((num, f"关键词行{row_idx+1}的下一行", 2))
+                                if verbose:
+                                    print(f"    ✓ 候选数字: {num} (来自下一行，优先级2)")
+    
+    # 如果没找到关键词，尝试查找"合计"行（最低优先级）
+    for row_idx, row in enumerate(table):
         row_text = " ".join([str(cell) if cell else "" for cell in row])
         if "合计" in row_text and "员工" in row_text:
+            if verbose:
+                print(f"    找到'合计+员工'在第 {row_idx + 1} 行")
             numbers = extract_numbers_from_row(row)
             if numbers:
-                for num in numbers:
-                    if isinstance(num, int) and num > 10:
-                        return num
+                if verbose:
+                    print(f"    合计行找到数字: {numbers}")
+                valid_numbers = [num for num in numbers if isinstance(num, int) and is_reasonable_employee_count(num)]
+                if valid_numbers:
+                    max_num = max(valid_numbers)
+                    candidates.append((max_num, f"合计行{row_idx+1}", 3))
+                    if verbose:
+                        print(f"    ✓ 候选数字: {max_num} (来自合计行，优先级3)")
+    
+    # 如果有多个候选，按优先级选择
+    if candidates:
+        if verbose:
+            print(f"    所有候选数字: {candidates}")
+        
+        # 按优先级分组
+        priority_1 = [(num, desc) for num, desc, priority in candidates if priority == 1]
+        priority_2 = [(num, desc) for num, desc, priority in candidates if priority == 2]
+        priority_3 = [(num, desc) for num, desc, priority in candidates if priority == 3]
+        
+        # 优先选择优先级1的候选（合计关键词行）
+        if priority_1:
+            valid_nums = [num for num, _ in priority_1 if 10 <= num <= 100000]
+            if valid_nums:
+                result = max(valid_nums)  # 选择最大的
+                if verbose:
+                    print(f"    → 选择: {result} (来自合计关键词行，优先级1，最大合理值)")
+                return result
+        
+        # 其次选择优先级2的候选
+        if priority_2:
+            valid_nums = [num for num, _ in priority_2 if 10 <= num <= 100000]
+            if valid_nums:
+                result = max(valid_nums)
+                if verbose:
+                    print(f"    → 选择: {result} (来自关键词行，优先级2，最大合理值)")
+                return result
+        
+        # 最后选择优先级3的候选
+        if priority_3:
+            valid_nums = [num for num, _ in priority_3 if 10 <= num <= 100000]
+            if valid_nums:
+                result = max(valid_nums)
+                if verbose:
+                    print(f"    → 选择: {result} (来自合计行，优先级3，最大合理值)")
+                return result
+        
+        # 如果都没有合理范围内的，返回优先级最高的第一个
+        if priority_1:
+            result = priority_1[0][0]
+            if verbose:
+                print(f"    ⚠ 选择: {result} (来自合计关键词行，但可能不在合理范围)")
+            return result
+        elif priority_2:
+            result = priority_2[0][0]
+            if verbose:
+                print(f"    ⚠ 选择: {result} (来自关键词行，但可能不在合理范围)")
+            return result
+        elif priority_3:
+            result = priority_3[0][0]
+            if verbose:
+                print(f"    ⚠ 选择: {result} (来自合计行，但可能不在合理范围)")
+            return result
     
     return None
 
@@ -489,20 +624,79 @@ def print_summary(results: List[Tuple[str, Optional[int], Optional[int]]]):
     print("-" * 80)
     print("=" * 80)
 
+def verify_specific_year(directory_path: str, year: int, stock_code: Optional[str] = None):
+    """
+    验证特定年份的员工数量提取结果
+    
+    参数:
+        directory_path: 目录路径
+        year: 要验证的年份
+        stock_code: 股票代码（可选）
+    """
+    print("=" * 80)
+    print(f"验证 {year} 年员工数量提取结果")
+    print("=" * 80)
+    
+    # 查找对应年份的PDF文件
+    pdf_files = []
+    for root, dirs, files in os.walk(directory_path):
+        for file in files:
+            if is_annual_report_pdf(file):
+                file_year = extract_year_from_filename(file)
+                if file_year == year:
+                    file_path = os.path.join(root, file)
+                    pdf_files.append(file_path)
+    
+    if not pdf_files:
+        print(f"✗ 未找到 {year} 年的年报PDF文件")
+        return
+    
+    if len(pdf_files) > 1:
+        print(f"⚠ 找到 {len(pdf_files)} 个 {year} 年的PDF文件，将验证第一个")
+    
+    pdf_path = pdf_files[0]
+    filename = os.path.basename(pdf_path)
+    print(f"\n文件: {filename}")
+    print(f"路径: {pdf_path}\n")
+    
+    # 使用详细模式提取
+    print("开始提取（详细模式）...")
+    print("-" * 80)
+    employee_count = extract_employee_count_from_pdf(pdf_path, verbose=True)
+    print("-" * 80)
+    
+    print("\n" + "=" * 80)
+    if employee_count is not None:
+        print(f"提取结果: {employee_count} 人")
+        print("\n⚠ 请手动验证：")
+        print("1. 打开PDF文件，找到'员工情况'或'员工构成'章节")
+        print("2. 查找'在职员工的数量合计'或类似表述")
+        print("3. 确认提取的数字是否正确")
+        print("\n如果提取结果不正确，请手动修正CSV文件中的数据")
+    else:
+        print("✗ 未能提取员工数量")
+        print("\n建议：")
+        print("1. 手动打开PDF文件查看")
+        print("2. 检查关键词是否匹配")
+        print("3. 可能需要调整提取逻辑")
+    print("=" * 80)
+
 def main():
     """
     主函数
     
-    支持两种模式：
+    支持三种模式：
     1. 单文件模式：处理指定的单个PDF文件
     2. 目录模式：批量处理目录中的所有年报PDF文件
+    3. 验证模式：详细验证特定年份的数据
     """
     import sys
     
     # 模式选择：可以修改这里来切换模式
     # 模式1：单文件模式
     # 模式2：目录模式（批量处理）
-    MODE = "directory"  # 可选: "single" 或 "directory"
+    # 模式3：验证模式（验证特定年份）
+    MODE = "directory"  # 可选: "single"、"directory" 或 "verify"
     
     if MODE == "single":
         # ========== 单文件模式 ==========
@@ -524,10 +718,19 @@ def main():
             print("✗ 未能提取员工数量")
         print("=" * 80)
     
+    elif MODE == "verify":
+        # ========== 验证模式（验证特定年份）==========
+        # 指定包含年报PDF的目录路径和要验证的年份
+        directory_path = r"E:\stock\行业\佳都科技"  # 请修改为实际的目录路径
+        verify_year = 2013  # 要验证的年份
+        
+        # 验证特定年份的数据
+        verify_specific_year(directory_path, verify_year, stock_code="600728")
+    
     else:
         # ========== 目录模式（批量处理）==========
         # 指定包含年报PDF的目录路径（请修改为实际路径）
-        directory_path = r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都"  # 请修改为实际的目录路径
+        directory_path = r"E:\stock\行业\科沃斯"  # 请修改为实际的目录路径
         
         print("=" * 80)
         print("从财务年报PDF中提取员工数量（批量处理模式）")

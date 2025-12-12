@@ -1650,13 +1650,13 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
 
 def main():
     # 指定股票代码和年份范围
-    symbol = "600728"  # 可以修改为其他股票代码
-    start_year = 2011  # 起始年份
+    symbol = "603486"  # 可以修改为其他股票代码
+    start_year = 2015  # 起始年份
     end_year = 2024     # 结束年份
     
     # 员工数量CSV文件路径（可选，如果提供则从CSV读取，否则使用接口）
     # 格式：xxxx_员工数量.csv，例如：600728_员工数量.csv
-    employee_csv_path = r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都\600728_员工数量.csv"  # 例如：r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都\600728_员工数量.csv"
+    employee_csv_path = r"E:\stock\行业\科沃斯\603486_员工数量.csv"  # 例如：r"G:\移动云盘同步文件夹\13600004997\生活\投资\资料\财报\佳都\600728_员工数量.csv"
     
     # 生成时间戳（用于文件名，确保所有sheet保存到同一个文件）
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
