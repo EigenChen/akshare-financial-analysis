@@ -1259,23 +1259,7 @@ def calculate_fixed_asset_metrics(symbol, start_year, end_year):
     # 创建DataFrame
     result_df = pd.DataFrame(metrics)
     
-    # 在DataFrame末尾添加公式说明行
-    # 公式说明放在科目列，年份列留空
-    formula_row1 = {
-        '科目': '公式说明：固定资产 = 固定资产 + 在建工程 + 工程物资 - 固定资产清理',
-        **{str(year): '' for year in range(start_year, end_year + 1)}
-    }
-    
-    formula_row2 = {
-        '科目': '公式说明：长期资产 = 固定资产 + 无形资产 + 开发支出 + 使用权资产 + 商誉 + 长期待摊费用',
-        **{str(year): '' for year in range(start_year, end_year + 1)}
-    }
-    
-    # 创建公式说明的DataFrame
-    formula_df = pd.DataFrame([formula_row1, formula_row2])
-    
-    # 合并DataFrame
-    result_df = pd.concat([result_df, formula_df], ignore_index=True)
+    # 注意：公式说明现在通过add_formula_notes函数在Excel中单独添加，不再添加到DataFrame中
     
     return result_df
 
@@ -1580,9 +1564,471 @@ def calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path
     
     return result_df
 
+def calculate_roi_metrics(symbol, start_year, end_year):
+    """
+    计算收益率和杜邦分析指标
+    
+    参数:
+        symbol: 股票代码
+        start_year: 起始年份
+        end_year: 结束年份
+    
+    返回:
+        包含所有收益率和杜邦分析指标数据的DataFrame
+    """
+    print("\n" + "=" * 80)
+    print(f"开始计算 {symbol} 的收益率和杜邦分析数据（{start_year}-{end_year}）")
+    print("=" * 80)
+    
+    # 获取数据
+    data = get_annual_data(symbol, start_year, end_year)
+    
+    if data['balance_sheet'] is None or data['profit'] is None:
+        print("✗ 资产负债表或利润表数据获取不完整，无法计算")
+        return None
+    
+    # 准备结果数据
+    metrics = {
+        '科目': [],
+    }
+    
+    # 初始化年份列
+    for year in range(start_year, end_year + 1):
+        metrics[str(year)] = []
+    
+    # 初始化所有科目名称
+    metrics['科目'] = [
+        'ROE(%)',
+        'ROA(%)',
+        'ROIC(%)',
+        '销售净利率(%)',
+        '资产周转率（次）',
+        '权益乘数'
+    ]
+    
+    # 初始化所有年份的数据列表（默认值为 "-" 表示数据缺失）
+    for year in range(start_year, end_year + 1):
+        for _ in range(len(metrics['科目'])):
+            metrics[str(year)].append("-")
+    
+    # 逐年计算指标
+    for year in range(start_year, end_year + 1):
+        print(f"\n处理 {year} 年数据...")
+        
+        # 获取该年份的数据
+        balance_row = extract_year_data(data['balance_sheet'], year)
+        profit_row = extract_year_data(data['profit'], year)
+        
+        if balance_row is None or profit_row is None:
+            print(f"  ⚠ {year} 年数据缺失，该年份所有指标显示为 '-'")
+            continue
+        
+        # 获取基础数据
+        # 归母净利润（亿元）
+        parent_net_profit = get_value_from_row(profit_row, 'PARENT_NETPROFIT', "-")
+        if parent_net_profit == "-":
+            print(f"  ⚠ {year} 年归母净利润数据缺失")
+            continue
+        
+        # 营业收入（亿元）
+        revenue = get_value_from_row(profit_row, 'OPERATE_INCOME', "-")
+        if revenue == "-":
+            print(f"  ⚠ {year} 年营业收入数据缺失")
+            continue
+        
+        # 总资产（亿元）
+        total_assets = get_value_from_row(balance_row, 'TOTAL_ASSETS', "-")
+        if total_assets == "-":
+            print(f"  ⚠ {year} 年总资产数据缺失")
+            continue
+        
+        # 归母净资产（亿元）
+        parent_equity = get_value_from_row(balance_row, 'TOTAL_PARENT_EQUITY', "-")
+        if parent_equity == "-":
+            print(f"  ⚠ {year} 年归母净资产数据缺失")
+            continue
+        
+        # 1. ROE(%) = 归母净利润 / 归母净资产 * 100
+        if parent_equity != "-" and parent_equity != 0:
+            roe = round((parent_net_profit / parent_equity * 100), 2)
+            metrics[str(year)][0] = roe
+        else:
+            metrics[str(year)][0] = "-"
+        
+        # 2. ROA(%) = 归母净利润 / 总资产 * 100
+        if total_assets != "-" and total_assets != 0:
+            roa = round((parent_net_profit / total_assets * 100), 2)
+            metrics[str(year)][1] = roa
+        else:
+            metrics[str(year)][1] = "-"
+        
+        # 3. ROIC(%) = EBIT / 投入资本 * 100
+        # EBIT = 营业利润 + 利息支出
+        # 投入资本 = 总资产 - 狭义无息债务 = 股东权益 + 有息债务
+        operate_profit = get_value_from_row(profit_row, 'OPERATE_PROFIT', "-")
+        if operate_profit == "-":
+            # 如果营业利润不存在，尝试计算：营业收入 - 营业成本 - 期间费用
+            operate_cost = get_value_from_row(profit_row, 'OPERATE_COST', 0)
+            if operate_cost == "-":
+                operate_cost = 0
+            
+            # 获取期间费用
+            sale_expense = get_value_from_row(profit_row, 'SALE_EXPENSE', 0)
+            manage_expense = get_value_from_row(profit_row, 'MANAGE_EXPENSE', 0)
+            research_expense = get_value_from_row(profit_row, 'RESEARCH_EXPENSE', 0)
+            finance_expense = get_value_from_row(profit_row, 'FINANCE_EXPENSE', 0)
+            
+            if sale_expense == "-":
+                sale_expense = 0
+            if manage_expense == "-":
+                manage_expense = 0
+            if research_expense == "-":
+                research_expense = 0
+            if finance_expense == "-":
+                finance_expense = 0
+            
+            # 计算营业利润 = 营业收入 - 营业成本 - 期间费用
+            period_expenses = sale_expense + manage_expense + research_expense
+            operate_profit = round(revenue - operate_cost - period_expenses, 2)
+        
+        # 获取利息支出（财务费用中的利息支出，如果没有则使用财务费用）
+        interest_expense = get_value_from_row(profit_row, 'FE_INTEREST_EXPENSE', 0)
+        if interest_expense == "-":
+            # 如果财务费用中的利息支出不存在，使用财务费用（通常财务费用 = 利息支出 - 利息收入）
+            finance_expense = get_value_from_row(profit_row, 'FINANCE_EXPENSE', 0)
+            if finance_expense == "-":
+                interest_expense = 0
+            else:
+                # 财务费用通常是负数（利息收入大于利息支出），取绝对值作为利息支出的近似值
+                interest_expense = abs(finance_expense)
+        
+        # 计算EBIT = 营业利润 + 利息支出
+        if operate_profit != "-":
+            ebit = round(operate_profit + interest_expense, 2)
+        else:
+            ebit = "-"
+        
+        # 计算投入资本 = 总资产 - 狭义无息债务
+        # 狭义无息债务 = 应付账款 + 预收账款 + 合同负债
+        accounts_payable = get_value_from_row(balance_row, 'ACCOUNTS_PAYABLE', 0)
+        advance_receipts = get_value_from_row(balance_row, 'ADVANCE_RECEIVABLES', 0)
+        contract_liabilities = get_value_from_row(balance_row, 'CONTRACT_LIAB', 0)
+        
+        if accounts_payable == "-":
+            accounts_payable = 0
+        if advance_receipts == "-":
+            advance_receipts = 0
+        if contract_liabilities == "-":
+            contract_liabilities = 0
+        
+        narrow_interest_free_debt = round(accounts_payable + advance_receipts + contract_liabilities, 2)
+        
+        # 投入资本 = 总资产 - 狭义无息债务
+        invested_capital = round(total_assets - narrow_interest_free_debt, 2)
+        
+        # 计算ROIC
+        if ebit != "-" and invested_capital != "-" and invested_capital != 0:
+            roic = round((ebit / invested_capital * 100), 2)
+            metrics[str(year)][2] = roic
+        else:
+            metrics[str(year)][2] = "-"
+        
+        # 4. 销售净利率(%) = 归母净利润 / 营业收入 * 100
+        if revenue != "-" and revenue != 0:
+            net_profit_margin = round((parent_net_profit / revenue * 100), 2)
+            metrics[str(year)][3] = net_profit_margin
+        else:
+            metrics[str(year)][3] = "-"
+        
+        # 5. 资产周转率（次）= 营业收入 / 总资产
+        if total_assets != "-" and total_assets != 0:
+            asset_turnover = round(revenue / total_assets, 2)
+            metrics[str(year)][4] = asset_turnover
+        else:
+            metrics[str(year)][4] = "-"
+        
+        # 6. 权益乘数 = 总资产 / 归母净资产
+        if parent_equity != "-" and parent_equity != 0:
+            equity_multiplier = round(total_assets / parent_equity, 2)
+            metrics[str(year)][5] = equity_multiplier
+        else:
+            metrics[str(year)][5] = "-"
+        
+        print(f"  ✓ {year} 年数据计算完成")
+    
+    # 创建DataFrame
+    result_df = pd.DataFrame(metrics)
+    
+    return result_df
+
+def calculate_asset_turnover_metrics(symbol, start_year, end_year):
+    """
+    计算资产周转相关指标
+    
+    参数:
+        symbol: 股票代码
+        start_year: 起始年份
+        end_year: 结束年份
+    
+    返回:
+        包含所有资产周转指标数据的DataFrame
+    """
+    print("\n" + "=" * 80)
+    print(f"开始计算 {symbol} 的资产周转数据（{start_year}-{end_year}）")
+    print("=" * 80)
+    
+    # 获取数据
+    data = get_annual_data(symbol, start_year, end_year)
+    
+    if data['balance_sheet'] is None or data['profit'] is None:
+        print("✗ 资产负债表或利润表数据获取不完整，无法计算")
+        return None
+    
+    # 准备结果数据
+    metrics = {
+        '科目': [],
+    }
+    
+    # 初始化年份列
+    for year in range(start_year, end_year + 1):
+        metrics[str(year)] = []
+    
+    # 初始化所有科目名称
+    metrics['科目'] = [
+        '总资产（亿元）',
+        '平均总资产（亿元）',
+        '平均流动资产（亿元）',
+        '平均存货（亿元）',
+        '归母净资产（亿元）',
+        '平均归母净资产（亿元）',
+        '总资产周转天数',
+        '流动资产周转天数',
+        'WC周转天数',
+        '应收周转天数',
+        '存货周转天数',
+        '固定资产周转天数'
+    ]
+    
+    # 初始化所有年份的数据列表（默认值为 "-" 表示数据缺失）
+    for year in range(start_year, end_year + 1):
+        for _ in range(len(metrics['科目'])):
+            metrics[str(year)].append("-")
+    
+    # 存储上一年的数据（用于计算平均值）
+    prev_year_data = {}
+    
+    # 逐年计算指标
+    for year in range(start_year, end_year + 1):
+        print(f"\n处理 {year} 年数据...")
+        
+        # 获取该年份的数据
+        balance_row = extract_year_data(data['balance_sheet'], year)
+        profit_row = extract_year_data(data['profit'], year)
+        
+        if balance_row is None or profit_row is None:
+            print(f"  ⚠ {year} 年数据缺失，该年份所有指标显示为 '-'")
+            # 清空上一年的数据，因为无法计算平均值
+            prev_year_data = {}
+            continue
+        
+        # 获取营业收入
+        revenue = get_value_from_row(profit_row, 'OPERATE_INCOME', "-")
+        if revenue == "-":
+            print(f"  ⚠ {year} 年营业收入数据缺失")
+            prev_year_data = {}
+            continue
+        
+        # 1. 总资产（亿元）
+        total_assets = get_value_from_row(balance_row, 'TOTAL_ASSETS', "-")
+        if total_assets == "-":
+            print(f"  ⚠ {year} 年总资产数据缺失")
+            prev_year_data = {}
+            continue
+        metrics[str(year)][0] = total_assets
+        
+        # 2. 平均总资产（亿元）= (上年总资产 + 当年总资产) / 2
+        if (year - 1) in prev_year_data and 'total_assets' in prev_year_data[year - 1]:
+            prev_total_assets = prev_year_data[year - 1]['total_assets']
+            if prev_total_assets != "-":
+                avg_total_assets = round((prev_total_assets + total_assets) / 2, 2)
+                metrics[str(year)][1] = avg_total_assets
+        else:
+            # 第一年或上一年数据缺失，无法计算平均值
+            metrics[str(year)][1] = "-"
+        
+        # 3. 平均流动资产（亿元）
+        current_assets = get_value_from_row(balance_row, 'TOTAL_CURRENT_ASSETS', "-")
+        if current_assets == "-":
+            current_assets = 0  # 如果缺失，设为0用于计算
+        
+        if (year - 1) in prev_year_data and 'current_assets' in prev_year_data[year - 1]:
+            prev_current_assets = prev_year_data[year - 1]['current_assets']
+            if prev_current_assets != "-":
+                avg_current_assets = round((prev_current_assets + current_assets) / 2, 2)
+                metrics[str(year)][2] = avg_current_assets
+        else:
+            metrics[str(year)][2] = "-"
+        
+        # 4. 平均存货（亿元）
+        inventory = get_value_from_row(balance_row, 'INVENTORY', "-")
+        if inventory == "-":
+            inventory = 0
+        
+        if (year - 1) in prev_year_data and 'inventory' in prev_year_data[year - 1]:
+            prev_inventory = prev_year_data[year - 1]['inventory']
+            if prev_inventory != "-":
+                avg_inventory = round((prev_inventory + inventory) / 2, 2)
+                metrics[str(year)][3] = avg_inventory
+        else:
+            metrics[str(year)][3] = "-"
+        
+        # 5. 归母净资产（亿元）
+        parent_equity = get_value_from_row(balance_row, 'TOTAL_PARENT_EQUITY', "-")
+        if parent_equity == "-":
+            print(f"  ⚠ {year} 年归母净资产数据缺失")
+            prev_year_data = {}
+            continue
+        metrics[str(year)][4] = parent_equity
+        
+        # 6. 平均归母净资产（亿元）
+        if (year - 1) in prev_year_data and 'parent_equity' in prev_year_data[year - 1]:
+            prev_parent_equity = prev_year_data[year - 1]['parent_equity']
+            if prev_parent_equity != "-":
+                avg_parent_equity = round((prev_parent_equity + parent_equity) / 2, 2)
+                metrics[str(year)][5] = avg_parent_equity
+        else:
+            metrics[str(year)][5] = "-"
+        
+        # 7. 总资产周转天数 = (平均总资产 / 营业收入) × 365
+        if metrics[str(year)][1] != "-" and revenue != "-" and revenue != 0:
+            total_asset_turnover_days = round((metrics[str(year)][1] / revenue * 365), 2)
+            metrics[str(year)][6] = total_asset_turnover_days
+        else:
+            metrics[str(year)][6] = "-"
+        
+        # 8. 流动资产周转天数 = (平均流动资产 / 营业收入) × 365
+        if metrics[str(year)][2] != "-" and revenue != "-" and revenue != 0:
+            current_asset_turnover_days = round((metrics[str(year)][2] / revenue * 365), 2)
+            metrics[str(year)][7] = current_asset_turnover_days
+        else:
+            metrics[str(year)][7] = "-"
+        
+        # 9. WC周转天数 = (平均WC / 营业收入) × 365
+        # 计算当年WC
+        accounts_receivable = get_value_from_row(balance_row, 'ACCOUNTS_RECE', 0)
+        prepayment = get_value_from_row(balance_row, 'PREPAYMENT', 0)
+        contract_asset = get_value_from_row(balance_row, 'CONTRACT_ASSET', 0)
+        accounts_payable = get_value_from_row(balance_row, 'ACCOUNTS_PAYABLE', 0)
+        advance_receipts = get_value_from_row(balance_row, 'ADVANCE_RECEIVABLES', 0)
+        contract_liabilities = get_value_from_row(balance_row, 'CONTRACT_LIAB', 0)
+        
+        if accounts_receivable == "-":
+            accounts_receivable = 0
+        if prepayment == "-":
+            prepayment = 0
+        if contract_asset == "-":
+            contract_asset = 0
+        if accounts_payable == "-":
+            accounts_payable = 0
+        if advance_receipts == "-":
+            advance_receipts = 0
+        if contract_liabilities == "-":
+            contract_liabilities = 0
+        
+        wc = round((accounts_receivable + prepayment + inventory + contract_asset) - 
+                   (accounts_payable + advance_receipts + contract_liabilities), 2)
+        
+        # 计算平均WC
+        if (year - 1) in prev_year_data and 'wc' in prev_year_data[year - 1]:
+            prev_wc = prev_year_data[year - 1]['wc']
+            if prev_wc != "-":
+                avg_wc = round((prev_wc + wc) / 2, 2)
+                if revenue != "-" and revenue != 0:
+                    wc_turnover_days = round((avg_wc / revenue * 365), 2)
+                    metrics[str(year)][8] = wc_turnover_days
+                else:
+                    metrics[str(year)][8] = "-"
+            else:
+                metrics[str(year)][8] = "-"
+        else:
+            metrics[str(year)][8] = "-"
+        
+        # 10. 应收周转天数 = (平均应收账款 / 营业收入) × 365
+        if (year - 1) in prev_year_data and 'accounts_receivable' in prev_year_data[year - 1]:
+            prev_accounts_receivable = prev_year_data[year - 1]['accounts_receivable']
+            if prev_accounts_receivable != "-":
+                avg_accounts_receivable = round((prev_accounts_receivable + accounts_receivable) / 2, 2)
+                if revenue != "-" and revenue != 0:
+                    receivables_turnover_days = round((avg_accounts_receivable / revenue * 365), 2)
+                    metrics[str(year)][9] = receivables_turnover_days
+                else:
+                    metrics[str(year)][9] = "-"
+            else:
+                metrics[str(year)][9] = "-"
+        else:
+            metrics[str(year)][9] = "-"
+        
+        # 11. 存货周转天数 = (平均存货 / 营业收入) × 365
+        if metrics[str(year)][3] != "-" and revenue != "-" and revenue != 0:
+            inventory_turnover_days = round((metrics[str(year)][3] / revenue * 365), 2)
+            metrics[str(year)][10] = inventory_turnover_days
+        else:
+            metrics[str(year)][10] = "-"
+        
+        # 12. 固定资产周转天数 = (平均固定资产 / 营业收入) × 365
+        # 计算当年固定资产
+        fixed_asset = get_value_from_row(balance_row, 'FIXED_ASSET', 0)
+        cip = get_value_from_row(balance_row, 'CIP', 0)
+        project_material = get_value_from_row(balance_row, 'PROJECT_MATERIAL', 0)
+        fixed_asset_disposal = get_value_from_row(balance_row, 'FIXED_ASSET_DISPOSAL', 0)
+        
+        if fixed_asset == "-":
+            fixed_asset = 0
+        if cip == "-":
+            cip = 0
+        if project_material == "-":
+            project_material = 0
+        if fixed_asset_disposal == "-":
+            fixed_asset_disposal = 0
+        
+        total_fixed_asset = round(fixed_asset + cip + project_material - fixed_asset_disposal, 2)
+        
+        # 计算平均固定资产
+        if (year - 1) in prev_year_data and 'fixed_asset' in prev_year_data[year - 1]:
+            prev_fixed_asset = prev_year_data[year - 1]['fixed_asset']
+            if prev_fixed_asset != "-":
+                avg_fixed_asset = round((prev_fixed_asset + total_fixed_asset) / 2, 2)
+                if revenue != "-" and revenue != 0:
+                    fixed_asset_turnover_days = round((avg_fixed_asset / revenue * 365), 2)
+                    metrics[str(year)][11] = fixed_asset_turnover_days
+                else:
+                    metrics[str(year)][11] = "-"
+            else:
+                metrics[str(year)][11] = "-"
+        else:
+            metrics[str(year)][11] = "-"
+        
+        # 保存当前年份的数据，供下一年使用
+        prev_year_data[year] = {
+            'total_assets': total_assets,
+            'current_assets': current_assets if current_assets != "-" else 0,
+            'inventory': inventory if inventory != "-" else 0,
+            'parent_equity': parent_equity,
+            'wc': wc,
+            'accounts_receivable': accounts_receivable if accounts_receivable != "-" else 0,
+            'fixed_asset': total_fixed_asset
+        }
+        
+        print(f"  ✓ {year} 年数据计算完成")
+    
+    # 创建DataFrame
+    result_df = pd.DataFrame(metrics)
+    
+    return result_df
+
 def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, output_dir="output", timestamp=None):
     """
-    保存数据到Excel文件
+    保存数据到Excel文件，并在数据表格下方添加公式说明区域
     
     参数:
         df: 数据框
@@ -1638,6 +2084,9 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
         # 确保文件句柄已关闭
         time.sleep(0.1)
         
+        # 添加公式说明区域
+        add_formula_notes(filepath, sheet_name, start_year, end_year)
+        
         print(f"  文件路径: {filepath}")
         print(f"  Sheet名称: {sheet_name}")
         return filepath
@@ -1647,6 +2096,109 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
         import traceback
         traceback.print_exc()
         return None
+
+def add_formula_notes(filepath, sheet_name, start_year, end_year):
+    """
+    在Excel sheet的数据表格下方添加公式说明区域
+    
+    参数:
+        filepath: Excel文件路径
+        sheet_name: Sheet名称
+        start_year: 起始年份
+        end_year: 结束年份
+    """
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
+        
+        # 加载工作簿
+        wb = load_workbook(filepath)
+        
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            return
+        
+        ws = wb[sheet_name]
+        
+        # 找到数据表格的最后一行
+        # 从最后一行向上查找，跳过可能存在的空行或公式说明行
+        max_row = ws.max_row
+        # 检查最后几行，如果包含"公式说明"字样，则向上查找
+        for row in range(max_row, max(1, max_row - 5), -1):
+            cell_value = ws.cell(row=row, column=1).value
+            if cell_value and '公式说明' in str(cell_value):
+                max_row = row - 1
+                break
+        
+        # 定义各sheet的公式说明
+        formula_notes = {}
+        
+        if sheet_name == '营收基本数据':
+            formula_notes = {
+                '金融利润（亿元）': '金融利润 = 公允价值变动收益 + 投资收益',
+                '经营利润（亿元）': '经营利润 = 归母净利润 - 金融利润',
+                'CAPEX（亿元）': 'CAPEX = 购建固定资产、无形资产和其他长期资产支付的现金（来自现金流量表）'
+            }
+        elif sheet_name == '资产负债':
+            formula_notes = {
+                '狭义无息债务（亿元）': '狭义无息债务 = 应付账款 + 预收账款 + 合同负债',
+                '广义无息债务（亿元）': '广义无息债务 = 应付账款 + 应付票据 + 预收账款 + 合同负债'
+            }
+        elif sheet_name == 'WC分析':
+            formula_notes = {
+                'WC（亿元）': 'WC = (应收账款 + 预付账款 + 存货 + 合同资产) - (应付账款 + 预收账款 + 合同负债)'
+            }
+        elif sheet_name == '固定资产投入分析':
+            formula_notes = {
+                '固定资产（亿元）': '固定资产 = 固定资产 + 在建工程 + 工程物资 - 固定资产清理',
+                '长期资产（亿元）': '长期资产 = 固定资产 + 无形资产 + 开发支出 + 使用权资产 + 商誉 + 长期待摊费用'
+            }
+        elif sheet_name == '收益率和杜邦分析':
+            formula_notes = {
+                'ROIC(%)': 'ROIC = EBIT / 投入资本 × 100，其中EBIT = 营业利润 + 利息支出，投入资本 = 总资产 - 狭义无息债务（应付账款 + 预收账款 + 合同负债）'
+            }
+        
+        # 如果没有公式说明，直接返回
+        if not formula_notes:
+            wb.close()
+            return
+        
+        # 计算列数（科目列 + 年份列）
+        num_cols = 1 + (end_year - start_year + 1)
+        
+        # 在数据表格下方留2行空白
+        start_row = max_row + 3
+        
+        # 添加标题行
+        title_row = start_row
+        ws.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=num_cols)
+        title_cell = ws.cell(row=title_row, column=1)
+        title_cell.value = '公式说明'
+        title_cell.font = Font(bold=True, size=11)
+        title_cell.fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+        title_cell.alignment = Alignment(horizontal='left', vertical='center')
+        
+        # 添加公式说明行
+        current_row = start_row + 1
+        for metric_name, formula in formula_notes.items():
+            # 合并第一列（科目列）和所有年份列
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=num_cols)
+            formula_cell = ws.cell(row=current_row, column=1)
+            formula_cell.value = f'{metric_name}: {formula}'
+            formula_cell.font = Font(size=10)
+            formula_cell.fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
+            formula_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+            current_row += 1
+        
+        # 保存工作簿
+        wb.save(filepath)
+        wb.close()
+        
+    except Exception as e:
+        print(f"⚠️ 添加公式说明失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
     # 指定股票代码和年份范围
@@ -1756,6 +2308,36 @@ def main():
         save_to_excel(fixed_asset_df, symbol, company_name, start_year, end_year, '固定资产投入分析', timestamp=timestamp)
     else:
         print("\n✗ 未能生成固定资产投入分析数据")
+    
+    # 计算收益率和杜邦分析数据
+    roi_df = calculate_roi_metrics(symbol, start_year, end_year)
+    
+    if roi_df is not None and not roi_df.empty:
+        # 打印到控制台
+        print("\n" + "=" * 80)
+        print(f"收益率和杜邦分析数据（{start_year}-{end_year}）")
+        print("=" * 80)
+        print(roi_df.to_string(index=False))
+        
+        # 保存到Excel（追加到同一个文件）
+        save_to_excel(roi_df, symbol, company_name, start_year, end_year, '收益率和杜邦分析', timestamp=timestamp)
+    else:
+        print("\n✗ 未能生成收益率和杜邦分析数据")
+    
+    # 计算资产周转数据
+    asset_turnover_df = calculate_asset_turnover_metrics(symbol, start_year, end_year)
+    
+    if asset_turnover_df is not None and not asset_turnover_df.empty:
+        # 打印到控制台
+        print("\n" + "=" * 80)
+        print(f"资产周转数据（{start_year}-{end_year}）")
+        print("=" * 80)
+        print(asset_turnover_df.to_string(index=False))
+        
+        # 保存到Excel（追加到同一个文件）
+        save_to_excel(asset_turnover_df, symbol, company_name, start_year, end_year, '资产周转', timestamp=timestamp)
+    else:
+        print("\n✗ 未能生成资产周转数据")
     
     # 计算人均数据
     per_capita_df = calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path=employee_csv_path)
