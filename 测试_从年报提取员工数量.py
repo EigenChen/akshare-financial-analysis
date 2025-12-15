@@ -730,14 +730,14 @@ def main():
     else:
         # ========== 目录模式（批量处理）==========
         # 指定包含年报PDF的目录路径（请修改为实际路径）
-        directory_path = r"E:\stock\行业\科沃斯"  # 请修改为实际的目录路径
+        directory_path = r"G:\移动云盘同步文件夹\13600004997\生活\投资\行业\科沃斯"  # 请修改为实际的目录路径
         
         print("=" * 80)
         print("从财务年报PDF中提取员工数量（批量处理模式）")
         print("=" * 80)
         
         # 批量处理目录中的年报PDF
-        results = process_directory(directory_path, verbose=False, stock_code="600728")
+        results = process_directory(directory_path, verbose=False, stock_code="603486")
         
         # 打印汇总结果
         if results:

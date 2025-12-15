@@ -14,6 +14,7 @@ import akshare as ak
 import pandas as pd
 import os
 from datetime import datetime
+from typing import Optional
 import io
 
 # 导入06_格式化显示财务数据模块
@@ -74,7 +75,7 @@ def get_symbol_name(symbol):
         pass
     return symbol.replace('.SZ', '').replace('.SH', '')
 
-def format_statement_data(df, year):
+def format_statement_data(df, year, statement_type: Optional[str] = None):
     """
     格式化财务报表数据为"每个科目一行"的格式
     
@@ -153,6 +154,55 @@ def format_statement_data(df, year):
         return None
     
     result_df = pd.DataFrame(result_data)
+
+    # 根据报表类型调整显示顺序
+    if statement_type in ("profit", "cash_flow"):
+        # 利润表常见科目顺序
+        profit_order = [
+            "TOTAL_OPERATE_INCOME", "OPERATE_INCOME",
+            "OPERATE_COST", "OPERATE_TAX_ADD",
+            "SALE_EXPENSE", "MANAGE_EXPENSE", "RESEARCH_EXPENSE",
+            "FINANCE_EXPENSE",
+            "FAIRVALUE_CHANGE_INCOME", "INVEST_INCOME", "OTHER_INCOME",
+            "ASSET_DISPOSAL_INCOME", "NONBUSINESS_INCOME", "NONBUSINESS_EXPENSE",
+            "TOTAL_PROFIT", "INCOME_TAX",
+            "NETPROFIT", "PARENT_NETPROFIT", "DEDUCT_PARENT_NETPROFIT",
+            "MINORITY_INTEREST",
+            "BASIC_EPS", "DILUTED_EPS",
+        ]
+        # 现金流量表常见科目顺序（按三大活动）
+        cash_order = [
+            # 经营活动
+            "SALE_SERVICE", "SALES_SERVICES", "RECEIVE_OTHER_OPERATE",
+            "OPERATE_INFLOW_BALANCE",
+            "BUY_SERVICE", "BUY_SERVICES", "PAY_STAFF_CASH",
+            "PAY_ALL_TAX", "PAY_OTHER_OPERATE",
+            "OPERATE_NETCASH_OPERATE", "NETCASH_OPERATE", "OPERATE_NET_CASH_FLOW",
+            # 投资活动
+            "WITHDRAW_INVEST", "RECEIVE_INVEST_INCOME", "DISPOSAL_LONG_ASSET",
+            "RECEIVE_OTHER_INVEST",
+            "INVEST_INFLOW_BALANCE",
+            "INVEST_PAY_CASH", "CONSTRUCT_LONG_ASSET", "PAY_OTHER_INVEST",
+            "INVEST_OUTFLOW_BALANCE",
+            "NETCASH_INVEST", "INVEST_NET_CASH_FLOW",
+            # 筹资活动
+            "ACCEPT_INVEST_CASH", "ACCEPT_LOAN_CASH", "ISSUE_BOND",
+            "RECEIVE_OTHER_FINANCE",
+            "FINANCE_INFLOW_BALANCE",
+            "PAY_DEBT_CASH", "ASSIGN_DIVIDEND_PORFIT", "PAY_OTHER_FINANCE",
+            "FINANCE_OUTFLOW_BALANCE",
+            "FINANCE_NET_CASH_FLOW",
+            # 其他
+            "RATE_CHANGE_EFFECT",
+            "NET_CASH_INCREASE", "BEGIN_CASH", "END_CASH",
+        ]
+        order_list = profit_order if statement_type == "profit" else cash_order
+        # 使用科目（英文列名）排序，未出现在顺序表中的放在后面
+        result_df["__order"] = result_df["科目"].apply(
+            lambda x: order_list.index(x) if x in order_list else len(order_list) + 1
+        )
+        result_df = result_df.sort_values(by="__order").drop(columns="__order")
+
     return result_df
 
 def get_financial_statements(symbol, start_year, end_year):
@@ -202,15 +252,15 @@ def get_financial_statements(symbol, start_year, end_year):
             
             # 格式化资产负债表
             if balance_sheet is not None and not balance_sheet.empty:
-                year_data['balance'] = format_statement_data(balance_sheet, year)
+                year_data['balance'] = format_statement_data(balance_sheet, year, statement_type="balance")
             
-            # 格式化利润表
+            # 格式化利润表（按常规科目顺序）
             if profit is not None and not profit.empty:
-                year_data['profit'] = format_statement_data(profit, year)
+                year_data['profit'] = format_statement_data(profit, year, statement_type="profit")
             
-            # 格式化现金流量表
+            # 格式化现金流量表（按经营/投资/筹资顺序）
             if cash_flow is not None and not cash_flow.empty:
-                year_data['cash_flow'] = format_statement_data(cash_flow, year)
+                year_data['cash_flow'] = format_statement_data(cash_flow, year, statement_type="cash_flow")
             
             # 如果至少有一个报表有数据，就添加到结果中
             has_data = False
