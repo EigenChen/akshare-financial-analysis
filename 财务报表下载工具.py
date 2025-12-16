@@ -405,175 +405,220 @@ def create_excel_file(results, symbol, company_name, start_year, end_year):
                 year_df = pd.DataFrame(year_rows)
                 year_df.to_excel(writer, sheet_name=sheet_name, index=False)
     
+    # 设置列宽自适应
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+        
+        output.seek(0)
+        wb = load_workbook(output)
+        
+        # 为每个sheet设置列宽
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=ws.max_row, values_only=False), start=1):
+                max_length = 0
+                column_letter = get_column_letter(col_idx)
+                
+                for cell in col:
+                    if cell.value is not None:
+                        try:
+                            cell_value = str(cell.value)
+                            length = 0
+                            for char in cell_value:
+                                if ord(char) > 127:  # 非ASCII字符（包括中文）
+                                    length += 2
+                                else:
+                                    length += 1
+                            if length > max_length:
+                                max_length = length
+                        except:
+                            pass
+                
+                if max_length > 0:
+                    adjusted_width = min(max(max_length + 2, 8), 50)
+                    ws.column_dimensions[column_letter].width = adjusted_width
+                else:
+                    ws.column_dimensions[column_letter].width = 10
+        
+        output.seek(0)
+        output.truncate(0)
+        wb.save(output)
+        wb.close()
+    except Exception as e:
+        # 如果设置列宽失败，不影响返回结果
+        print(f"⚠️ 设置列宽失败: {e}")
+    
     output.seek(0)
     return output.getvalue()
 
-# Streamlit界面
-st.set_page_config(
-    page_title="财务报表下载工具",
-    page_icon="📊",
-    layout="wide"
-)
-
-st.title("📊 财务报表下载工具")
-st.markdown("---")
-
-# 侧边栏
-with st.sidebar:
-    st.header("📝 参数设置")
-    
-    # 股票代码输入
-    symbol = st.text_input(
-        "股票代码",
-        value="603486",
-        help="请输入6位股票代码，如：603486（科沃斯）、600519（贵州茅台）"
-    )
-    
-    # 年份范围
-    col1, col2 = st.columns(2)
-    with col1:
-        start_year = st.number_input(
-            "起始年份",
-            min_value=2000,
-            max_value=datetime.now().year,
-            value=2015,
-            step=1
-        )
-    with col2:
-        end_year = st.number_input(
-            "结束年份",
-            min_value=2000,
-            max_value=datetime.now().year,
-            value=2024,
-            step=1
-        )
-    
-    if start_year > end_year:
-        st.error("⚠️ 起始年份不能大于结束年份")
-        st.stop()
-    
-    # 开始按钮
-    analyze_button = st.button(
-        "🚀 开始获取数据",
-        type="primary",
-        use_container_width=True
+# Streamlit界面（仅在直接运行时执行）
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="财务报表下载工具",
+        page_icon="📊",
+        layout="wide"
     )
 
-# 主内容区
-if analyze_button:
-    if not symbol or len(symbol.replace('.SZ', '').replace('.SH', '')) != 6:
-        st.error("❌ 请输入有效的6位股票代码")
-        st.stop()
-    
-    # 获取公司名称
-    company_name = get_symbol_name(symbol)
-    st.info(f"📌 公司名称：**{company_name}** ({symbol})")
-    st.info(f"📅 年份范围：{start_year} - {end_year}")
-    
-    # 获取数据
-    results = get_financial_statements(symbol, start_year, end_year)
-    
-    if results and len(results) > 0:
-        st.success(f"✅ 成功获取 {len(results)} 个年份的数据")
+    st.title("📊 财务报表下载工具")
+    st.markdown("---")
+
+    # 侧边栏
+    with st.sidebar:
+        st.header("📝 参数设置")
         
-        # 显示数据预览
-        st.divider()
-        st.header("📋 数据预览")
+        # 股票代码输入
+        symbol = st.text_input(
+            "股票代码",
+            value="603486",
+            help="请输入6位股票代码，如：603486（科沃斯）、600519（贵州茅台）"
+        )
         
-        # 为每个年份创建标签页
-        tabs = st.tabs([f"{year}年" for year in sorted(results.keys())])
+        # 年份范围
+        col1, col2 = st.columns(2)
+        with col1:
+            start_year = st.number_input(
+                "起始年份",
+                min_value=2000,
+                max_value=datetime.now().year,
+                value=2015,
+                step=1
+            )
+        with col2:
+            end_year = st.number_input(
+                "结束年份",
+                min_value=2000,
+                max_value=datetime.now().year,
+                value=2024,
+                step=1
+            )
         
-        for idx, year in enumerate(sorted(results.keys())):
-            with tabs[idx]:
-                year_data = results[year]
-                
-                # 资产负债表
-                if year_data['balance'] is not None and not year_data['balance'].empty:
-                    st.subheader("📊 资产负债表")
-                    st.dataframe(
-                        year_data['balance'],
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                
-                # 利润表
-                if year_data['profit'] is not None and not year_data['profit'].empty:
-                    st.subheader("💰 利润表")
-                    st.dataframe(
-                        year_data['profit'],
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                
-                # 现金流量表
-                if year_data['cash_flow'] is not None and not year_data['cash_flow'].empty:
-                    st.subheader("💵 现金流量表")
-                    st.dataframe(
-                        year_data['cash_flow'],
-                        use_container_width=True,
-                        hide_index=True
-                    )
+        if start_year > end_year:
+            st.error("⚠️ 起始年份不能大于结束年份")
+            st.stop()
         
-        # 生成Excel文件
-        st.divider()
-        st.header("📥 下载Excel文件")
-        
-        excel_data = create_excel_file(results, symbol, company_name, start_year, end_year)
-        
-        symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
-        filename = f"{company_name}_{symbol_clean}_{start_year}-{end_year}_财务报表.xlsx"
-        
-        st.download_button(
-            label="📥 下载Excel文件",
-            data=excel_data,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        # 开始按钮
+        analyze_button = st.button(
+            "🚀 开始获取数据",
+            type="primary",
             use_container_width=True
         )
-        
-        st.info(f"💡 文件包含 {len(results)} 个sheet，每个sheet包含该年份的三大财务报表")
-        
-    else:
-        st.warning("⚠️ 未获取到数据，请检查股票代码和年份范围是否正确")
 
-else:
-    # 欢迎页面
-    st.markdown("""
-    ## 👋 欢迎使用财务报表下载工具
-    
-    这个工具可以帮助您：
-    
-    ### ✨ 主要功能
-    
-    1. **📊 获取历年财务报表**：自动获取指定年份范围的三大财务报表数据
-    2. **📋 数据格式化**：将数据转换为易读的格式（每个科目一行）
-    3. **📥 Excel导出**：每年一个sheet，每个sheet包含资产负债表、利润表、现金流量表
-    4. **💰 单位转换**：自动将数值转换为"亿"单位，便于阅读
-    
-    ### 🚀 使用步骤
-    
-    1. 在左侧边栏输入**股票代码**（如：603486）
-    2. 选择**起始年份**和**结束年份**
-    3. 点击 **"开始获取数据"** 按钮
-    4. 查看数据预览
-    5. 下载Excel文件
-    
-    ### 📝 使用示例
-    
-    - **科沃斯**：603486
-    - **贵州茅台**：600519
-    - **平安银行**：000001
-    - **万科A**：000002
-    
-    ### ⚠️ 注意事项
-    
-    - 数据来源于公开数据源，仅供参考
-    - 首次获取可能需要较长时间（数据获取）
-    - 建议选择合理的年份范围（通常5-10年）
-    - 某些股票可能缺少部分年份的数据
-    
-    ---
-    
-    **开始使用**：请在左侧边栏设置参数，然后点击"开始获取数据"按钮。
-    """)
+    # 主内容区
+    if analyze_button:
+        if not symbol or len(symbol.replace('.SZ', '').replace('.SH', '')) != 6:
+            st.error("❌ 请输入有效的6位股票代码")
+            st.stop()
+        
+        # 获取公司名称
+        company_name = get_symbol_name(symbol)
+        st.info(f"📌 公司名称：**{company_name}** ({symbol})")
+        st.info(f"📅 年份范围：{start_year} - {end_year}")
+        
+        # 获取数据
+        results = get_financial_statements(symbol, start_year, end_year)
+        
+        if results and len(results) > 0:
+            st.success(f"✅ 成功获取 {len(results)} 个年份的数据")
+            
+            # 显示数据预览
+            st.divider()
+            st.header("📋 数据预览")
+            
+            # 为每个年份创建标签页
+            tabs = st.tabs([f"{year}年" for year in sorted(results.keys())])
+            
+            for idx, year in enumerate(sorted(results.keys())):
+                with tabs[idx]:
+                    year_data = results[year]
+                    
+                    # 资产负债表
+                    if year_data['balance'] is not None and not year_data['balance'].empty:
+                        st.subheader("📊 资产负债表")
+                        st.dataframe(
+                            year_data['balance'],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    
+                    # 利润表
+                    if year_data['profit'] is not None and not year_data['profit'].empty:
+                        st.subheader("💰 利润表")
+                        st.dataframe(
+                            year_data['profit'],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    
+                    # 现金流量表
+                    if year_data['cash_flow'] is not None and not year_data['cash_flow'].empty:
+                        st.subheader("💵 现金流量表")
+                        st.dataframe(
+                            year_data['cash_flow'],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+            
+            # 生成Excel文件
+            st.divider()
+            st.header("📥 下载Excel文件")
+            
+            excel_data = create_excel_file(results, symbol, company_name, start_year, end_year)
+            
+            symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
+            filename = f"{company_name}_{symbol_clean}_{start_year}-{end_year}_财务报表.xlsx"
+            
+            st.download_button(
+                label="📥 下载Excel文件",
+                data=excel_data,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+            st.info(f"💡 文件包含 {len(results)} 个sheet，每个sheet包含该年份的三大财务报表")
+            
+        else:
+            st.warning("⚠️ 未获取到数据，请检查股票代码和年份范围是否正确")
+
+    else:
+        # 欢迎页面
+        st.markdown("""
+        ## 👋 欢迎使用财务报表下载工具
+        
+        这个工具可以帮助您：
+        
+        ### ✨ 主要功能
+        
+        1. **📊 获取历年财务报表**：自动获取指定年份范围的三大财务报表数据
+        2. **📋 数据格式化**：将数据转换为易读的格式（每个科目一行）
+        3. **📥 Excel导出**：每年一个sheet，每个sheet包含资产负债表、利润表、现金流量表
+        4. **💰 单位转换**：自动将数值转换为"亿"单位，便于阅读
+        
+        ### 🚀 使用步骤
+        
+        1. 在左侧边栏输入**股票代码**（如：603486）
+        2. 选择**起始年份**和**结束年份**
+        3. 点击 **"开始获取数据"** 按钮
+        4. 查看数据预览
+        5. 下载Excel文件
+        
+        ### 📝 使用示例
+        
+        - **科沃斯**：603486
+        - **贵州茅台**：600519
+        - **平安银行**：000001
+        - **万科A**：000002
+        
+        ### ⚠️ 注意事项
+        
+        - 数据来源于公开数据源，仅供参考
+        - 首次获取可能需要较长时间（数据获取）
+        - 建议选择合理的年份范围（通常5-10年）
+        - 某些股票可能缺少部分年份的数据
+        
+        ---
+        
+        **开始使用**：请在左侧边栏设置参数，然后点击"开始获取数据"按钮。
+        """)
 

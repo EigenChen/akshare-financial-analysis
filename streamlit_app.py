@@ -707,9 +707,10 @@ if (load_button and result_file) or ('loaded_excel_data' in st.session_state and
                 with tabs[idx]:
                     st.subheader(f"📋 {sheet_name}")
                     
-                    # 显示数据表
+                    # 显示数据表 - 将DataFrame转换为字符串类型以避免PyArrow类型转换问题
+                    display_df = df.astype(str)
                     st.dataframe(
-                        df,
+                        display_df,
                         use_container_width=True,
                         hide_index=True
                     )
@@ -1084,9 +1085,10 @@ elif analyze_button or ('analysis_results' in st.session_state and st.session_st
                 with tabs[idx]:
                     st.subheader(f"📋 {sheet_name}")
                     
-                    # 显示数据表
+                    # 显示数据表 - 将DataFrame转换为字符串类型以避免PyArrow类型转换问题
+                    display_df = df.astype(str)
                     st.dataframe(
-                        df,
+                        display_df,
                         use_container_width=True,
                         hide_index=True
                     )

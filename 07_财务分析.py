@@ -2087,6 +2087,9 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
         # 添加公式说明区域
         add_formula_notes(filepath, sheet_name, start_year, end_year)
         
+        # 设置列宽自适应
+        auto_adjust_column_width(filepath, sheet_name)
+        
         print(f"  文件路径: {filepath}")
         print(f"  Sheet名称: {sheet_name}")
         return filepath
@@ -2096,6 +2099,69 @@ def save_to_excel(df, symbol, company_name, start_year, end_year, sheet_name, ou
         import traceback
         traceback.print_exc()
         return None
+
+def auto_adjust_column_width(filepath, sheet_name):
+    """
+    自动调整Excel sheet的列宽以适应内容
+    
+    参数:
+        filepath: Excel文件路径
+        sheet_name: Sheet名称
+    """
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+        
+        # 加载工作簿
+        wb = load_workbook(filepath)
+        
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            return
+        
+        ws = wb[sheet_name]
+        
+        # 遍历每一列，计算最大内容长度
+        for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=ws.max_row, values_only=False), start=1):
+            max_length = 0
+            column_letter = get_column_letter(col_idx)
+            
+            # 遍历该列的所有单元格
+            for cell in col:
+                if cell.value is not None:
+                    # 计算单元格内容的字符串长度
+                    # 对于数字，转换为字符串；对于其他类型，直接转换为字符串
+                    try:
+                        cell_value = str(cell.value)
+                        # 中文字符通常需要更多宽度，粗略估算：中文字符按2个字符宽度计算
+                        length = 0
+                        for char in cell_value:
+                            if ord(char) > 127:  # 非ASCII字符（包括中文）
+                                length += 2
+                            else:
+                                length += 1
+                        if length > max_length:
+                            max_length = length
+                    except:
+                        pass
+            
+            # 设置列宽（最小宽度8，最大宽度50，并添加一些padding）
+            if max_length > 0:
+                # 添加2个字符的padding，并限制在合理范围内
+                adjusted_width = min(max(max_length + 2, 8), 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+            else:
+                # 如果列是空的，设置默认宽度
+                ws.column_dimensions[column_letter].width = 10
+        
+        # 保存工作簿
+        wb.save(filepath)
+        wb.close()
+        
+    except Exception as e:
+        print(f"⚠️ 自动调整列宽失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 def add_formula_notes(filepath, sheet_name, start_year, end_year):
     """

@@ -21,6 +21,7 @@ from typing import Dict, Optional
 
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 # -----------------------------
 # 工具：动态导入模块
@@ -73,6 +74,48 @@ if start_year > end_year:
     st.stop()
 
 # -----------------------------
+# 辅助函数：获取公式说明
+# -----------------------------
+def get_formula_notes(sheet_name):
+    """
+    获取指定sheet的公式说明
+    
+    参数:
+        sheet_name: Sheet名称
+    
+    返回:
+        字典，格式为 {指标名称: 公式说明}
+    """
+    formula_notes = {}
+    
+    if sheet_name == '营收基本数据':
+        formula_notes = {
+            '金融利润（亿元）': '金融利润 = 公允价值变动收益 + 投资收益',
+            '经营利润（亿元）': '经营利润 = 归母净利润 - 金融利润',
+            'CAPEX（亿元）': 'CAPEX = 购建固定资产、无形资产和其他长期资产支付的现金（来自现金流量表）'
+        }
+    elif sheet_name == '资产负债':
+        formula_notes = {
+            '狭义无息债务（亿元）': '狭义无息债务 = 应付账款 + 预收账款 + 合同负债',
+            '广义无息债务（亿元）': '广义无息债务 = 应付账款 + 应付票据 + 预收账款 + 合同负债'
+        }
+    elif sheet_name == 'WC分析':
+        formula_notes = {
+            'WC（亿元）': 'WC = (应收账款 + 预付账款 + 存货 + 合同资产) - (应付账款 + 预收账款 + 合同负债)'
+        }
+    elif sheet_name == '固定资产投入分析':
+        formula_notes = {
+            '固定资产（亿元）': '固定资产 = 固定资产 + 在建工程 + 工程物资 - 固定资产清理',
+            '长期资产（亿元）': '长期资产 = 固定资产 + 无形资产 + 开发支出 + 使用权资产 + 商誉 + 长期待摊费用'
+        }
+    elif sheet_name == '收益率和杜邦分析':
+        formula_notes = {
+            'ROIC(%)': 'ROIC = EBIT / 投入资本 × 100，其中EBIT = 营业利润 + 利息支出，投入资本 = 总资产 - 狭义无息债务（应付账款 + 预收账款 + 合同负债）'
+        }
+    
+    return formula_notes
+
+# -----------------------------
 # 功能 1：财务分析
 # -----------------------------
 def run_financial_analysis():
@@ -94,123 +137,216 @@ def run_financial_analysis():
     employee_csv = st.sidebar.file_uploader("员工数量CSV（可选，年份,员工数量）", type=["csv"])
 
     run_btn = st.sidebar.button("🚀 开始分析", type="primary", use_container_width=True)
-    if not run_btn:
-        st.info("在左侧选择模块并点击开始分析。")
-        return
+    
+    # 先检查是否有已保存的结果
+    session_key = f"analysis_results_{market}_{symbol}_{start_year}_{end_year}"
+    
+    # 如果点击了按钮，执行分析
+    if run_btn:
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        results: Dict[str, pd.DataFrame] = {}
 
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    results: Dict[str, pd.DataFrame] = {}
+        try:
+            if market == "A股":
+                fa = fa_a
+            else:
+                fa = fa_hk
+            company_name = fa.get_symbol_name(symbol) if hasattr(fa, "get_symbol_name") else symbol
 
-    try:
-        if market == "A股":
-            fa = fa_a
-        else:
-            fa = fa_hk
-        company_name = fa.get_symbol_name(symbol) if hasattr(fa, "get_symbol_name") else symbol
+            progress = st.progress(0)
+            done = 0
+            total = sum(modules.values()) or 1
 
-        progress = st.progress(0)
-        done = 0
-        total = sum(modules.values()) or 1
+            def step():
+                nonlocal done
+                done += 1
+                progress.progress(min(1.0, done / total))
 
-        def step():
-            nonlocal done
-            done += 1
-            progress.progress(min(1.0, done / total))
+            # 营收基本数据
+            if modules["营收基本数据"]:
+                df = fa.calculate_revenue_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["营收基本数据"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "营收基本数据", timestamp=timestamp)
+                step()
+            # 费用构成
+            if modules["费用构成"]:
+                df = fa.calculate_expense_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["费用构成"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "费用构成", timestamp=timestamp)
+                step()
+            # 增长率
+            if modules["增长率"]:
+                df = fa.calculate_growth_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["增长"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "增长", timestamp=timestamp)
+                step()
+            # 资产负债
+            if modules["资产负债"]:
+                df = fa.calculate_balance_sheet_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["资产负债"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "资产负债", timestamp=timestamp)
+                step()
+            # WC分析
+            if modules["WC分析"]:
+                df = fa.calculate_wc_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["WC分析"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "WC分析", timestamp=timestamp)
+                step()
+            # 固定资产投入分析
+            if modules["固定资产投入分析"]:
+                df = fa.calculate_fixed_asset_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["固定资产投入分析"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "固定资产投入分析", timestamp=timestamp)
+                step()
+            # 收益率和杜邦分析
+            if modules["收益率和杜邦分析"]:
+                df = fa.calculate_roi_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["收益率和杜邦分析"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "收益率和杜邦分析", timestamp=timestamp)
+                step()
+            # 资产周转
+            if modules["资产周转"]:
+                df = fa.calculate_asset_turnover_metrics(symbol, start_year, end_year)
+                if df is not None and not df.empty:
+                    results["资产周转"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "资产周转", timestamp=timestamp)
+                step()
+            # 人均数据
+            if modules["人均数据"]:
+                csv_path = None
+                if employee_csv:
+                    import tempfile
+                    csv_bytes = employee_csv.getvalue()
+                    # 使用系统临时目录，兼容 Windows 和 Linux
+                    temp_dir = tempfile.gettempdir()
+                    csv_path = os.path.join(temp_dir, employee_csv.name)
+                    with open(csv_path, "wb") as f:
+                        f.write(csv_bytes)
+                df = fa.calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path=csv_path)
+                if df is not None and not df.empty:
+                    results["人均数据"] = df
+                    fa.save_to_excel(df, symbol, company_name, start_year, end_year, "人均数据", timestamp=timestamp)
+                step()
 
-        # 营收基本数据
-        if modules["营收基本数据"]:
-            df = fa.calculate_revenue_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["营收基本数据"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "营收基本数据", timestamp=timestamp)
-            step()
-        # 费用构成
-        if modules["费用构成"]:
-            df = fa.calculate_expense_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["费用构成"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "费用构成", timestamp=timestamp)
-            step()
-        # 增长率
-        if modules["增长率"]:
-            df = fa.calculate_growth_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["增长"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "增长", timestamp=timestamp)
-            step()
-        # 资产负债
-        if modules["资产负债"]:
-            df = fa.calculate_balance_sheet_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["资产负债"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "资产负债", timestamp=timestamp)
-            step()
-        # WC分析
-        if modules["WC分析"]:
-            df = fa.calculate_wc_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["WC分析"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "WC分析", timestamp=timestamp)
-            step()
-        # 固定资产投入分析
-        if modules["固定资产投入分析"]:
-            df = fa.calculate_fixed_asset_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["固定资产投入分析"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "固定资产投入分析", timestamp=timestamp)
-            step()
-        # 收益率和杜邦分析
-        if modules["收益率和杜邦分析"]:
-            df = fa.calculate_roi_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["收益率和杜邦分析"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "收益率和杜邦分析", timestamp=timestamp)
-            step()
-        # 资产周转
-        if modules["资产周转"]:
-            df = fa.calculate_asset_turnover_metrics(symbol, start_year, end_year)
-            if df is not None and not df.empty:
-                results["资产周转"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "资产周转", timestamp=timestamp)
-            step()
-        # 人均数据
-        if modules["人均数据"]:
-            csv_path = None
-            if employee_csv:
-                csv_bytes = employee_csv.getvalue()
-                csv_path = f"/tmp/{employee_csv.name}"
-                with open(csv_path, "wb") as f:
-                    f.write(csv_bytes)
-            df = fa.calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path=csv_path)
-            if df is not None and not df.empty:
-                results["人均数据"] = df
-                fa.save_to_excel(df, symbol, company_name, start_year, end_year, "人均数据", timestamp=timestamp)
-            step()
+            progress.progress(1.0)
+            st.success("分析完成！")
 
-        progress.progress(1.0)
-        st.success("分析完成！")
+            if not results:
+                st.warning("未生成任何结果，请检查数据是否可用。")
+                return
 
-        if not results:
-            st.warning("未生成任何结果，请检查数据是否可用。")
-            return
+            # 保存结果到 session_state
+            st.session_state[session_key] = results
+            st.session_state[f"{session_key}_company"] = company_name
+            st.session_state[f"{session_key}_timestamp"] = timestamp
+            st.session_state[f"{session_key}_filepath"] = os.path.join("output", f"{company_name}_{start_year}-{end_year}_{'财务分析' if market=='A股' else '港股财务分析'}_{timestamp}.xlsx")
+
+        except Exception as e:
+            st.error(f"分析失败：{e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+    # 显示分析结果（从 session_state 读取）
+    if session_key in st.session_state:
+        results = st.session_state[session_key]
+        company_name = st.session_state.get(f"{session_key}_company", symbol)
+        timestamp = st.session_state.get(f"{session_key}_timestamp", "")
+        filepath = st.session_state.get(f"{session_key}_filepath", "")
 
         sheet = st.selectbox("选择要查看的Sheet", list(results.keys()))
-        st.dataframe(results[sheet], width='stretch', height=420)
+        
+        # 显示数据表格
+        st.subheader(f"📊 {sheet}")
+        # 将DataFrame转换为字符串类型以避免PyArrow类型转换问题（混合类型：数值和"-"）
+        display_df = results[sheet].astype(str)
+        st.dataframe(display_df, width='stretch', height=420)
+        
+        # 显示公式注释
+        formula_notes = get_formula_notes(sheet)
+        if formula_notes:
+            st.markdown("---")
+            st.subheader("📝 公式说明")
+            for metric_name, formula in formula_notes.items():
+                st.markdown(f"**{metric_name}**: {formula}")
+        
+        # 趋势图（仅显示数值指标）
+        try:
+            df = results[sheet]
+            # DataFrame 格式：第一列是"科目"，其他列是年份（如'2020', '2021'等）
+            if "科目" in df.columns:
+                # 获取所有年份列（数字字符串）
+                year_cols = [col for col in df.columns if col != "科目" and col.isdigit()]
+                
+                if len(year_cols) >= 2:  # 至少需要2年数据才能画趋势
+                    st.subheader("📈 趋势图")
+                    
+                    # 获取所有科目（指标）
+                    all_metrics = df["科目"].tolist()
+                    
+                    # 用户选择要显示的指标
+                    selected_metrics = st.multiselect(
+                        "选择要可视化的指标",
+                        options=all_metrics,
+                        default=all_metrics[:min(3, len(all_metrics))],  # 默认选前3个
+                        key=f"chart_metrics_{sheet}"
+                    )
+                    
+                    if selected_metrics:
+                        # 准备绘图数据
+                        chart_data = []
+                        for metric in selected_metrics:
+                            metric_row = df[df["科目"] == metric]
+                            if not metric_row.empty:
+                                for year_col in year_cols:
+                                    value = metric_row[year_col].iloc[0]
+                                    # 跳过 "-" 和非数值
+                                    if value != "-" and pd.notna(value):
+                                        try:
+                                            numeric_value = float(value)
+                                            chart_data.append({
+                                                "年份": int(year_col),
+                                                "指标": metric,
+                                                "数值": numeric_value
+                                            })
+                                        except (ValueError, TypeError):
+                                            pass
+                        
+                        if chart_data:
+                            chart_df = pd.DataFrame(chart_data)
+                            fig = px.line(
+                                chart_df,
+                                x="年份",
+                                y="数值",
+                                color="指标",
+                                markers=True,
+                                title=f"{sheet} - 趋势图"
+                            )
+                            fig.update_layout(hovermode="x unified")
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("💡 所选指标没有可绘制的数值数据")
+        except Exception as e:
+            st.warning(f"⚠️ 图表生成失败：{str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
-        # 下载最新生成的Excel
-        filename = f"{company_name}_{start_year}-{end_year}_{'财务分析' if market=='A股' else '港股财务分析'}_{timestamp}.xlsx"
-        filepath = os.path.join("output", filename)
-        if os.path.exists(filepath):
+        # 下载Excel文件
+        if filepath and os.path.exists(filepath):
             with open(filepath, "rb") as f:
-                st.download_button("📥 下载Excel文件", data=f.read(), file_name=filename,
+                st.download_button("📥 下载Excel文件", data=f.read(), file_name=os.path.basename(filepath),
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.info("Excel 文件尚未生成或路径不存在。")
-
-    except Exception as e:
-        st.error(f"分析失败：{e}")
-        import traceback
-        st.code(traceback.format_exc())
+    else:
+        # 没有结果，提示用户
+        st.info("在左侧选择分析模块并点击【开始分析】按钮。")
 
 # -----------------------------
 # 功能 2：报表下载
@@ -405,6 +541,41 @@ def run_report_download():
                         ws = writer.sheets[sheet_name]
                         ws.cell(row=pos + 1, column=1, value=f"【{title}】")
                         pos += len(df_t) + 3  # 标题 + 数据 + 空行
+                
+                # 在writer关闭前设置列宽自适应
+                try:
+                    from openpyxl.utils import get_column_letter
+                    
+                    # 为每个sheet设置列宽
+                    for sheet_name in writer.book.sheetnames:
+                        ws = writer.book[sheet_name]
+                        for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=ws.max_row, values_only=False), start=1):
+                            max_length = 0
+                            column_letter = get_column_letter(col_idx)
+                            
+                            for cell in col:
+                                if cell.value is not None:
+                                    try:
+                                        cell_value = str(cell.value)
+                                        length = 0
+                                        for char in cell_value:
+                                            if ord(char) > 127:  # 非ASCII字符（包括中文）
+                                                length += 2
+                                            else:
+                                                length += 1
+                                        if length > max_length:
+                                            max_length = length
+                                    except:
+                                        pass
+                            
+                            if max_length > 0:
+                                adjusted_width = min(max(max_length + 2, 8), 50)
+                                ws.column_dimensions[column_letter].width = adjusted_width
+                            else:
+                                ws.column_dimensions[column_letter].width = 10
+                except Exception as e:
+                    # 如果设置列宽失败，不影响返回结果
+                    pass
 
             output.seek(0)
             excel_bytes = output.getvalue()

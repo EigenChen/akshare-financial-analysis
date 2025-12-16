@@ -479,8 +479,9 @@ if analysis_mode == "📂 加载已有结果" and 'loaded_excel_data' in st.sess
             df = loaded_data[selected_sheet]
             st.subheader(f"📋 {selected_sheet}")
             
-            # 显示数据表
-            st.dataframe(df, use_container_width=True, height=400)
+            # 显示数据表 - 将DataFrame转换为字符串类型以避免PyArrow类型转换问题
+            display_df = df.astype(str)
+            st.dataframe(display_df, use_container_width=True, height=400)
             
             # 显示公式说明
             formula_notes = get_formula_notes(selected_sheet)
@@ -670,8 +671,10 @@ if 'analysis_results' in st.session_state:
         df = analysis_results[selected_sheet]
         st.subheader(f"📋 {selected_sheet}")
         
-        # 显示数据表
-        st.dataframe(df, use_container_width=True, height=400)
+        # 显示数据表 - 将DataFrame转换为字符串类型以避免PyArrow类型转换问题
+        # （DataFrame中包含混合类型：数值和"-"字符串，PyArrow无法处理）
+        display_df = df.astype(str)
+        st.dataframe(display_df, use_container_width=True, height=400)
         
         # 显示公式说明
         formula_notes = get_formula_notes(selected_sheet)
