@@ -599,21 +599,85 @@ def run_report_download():
 # -----------------------------
 def run_employee_extraction():
     st.header("👥 员工数量提取")
-    pdf_dir = st.sidebar.text_input("PDF目录路径", value="年报PDF")
+    
+    # 文件夹选择功能
+    def select_folder():
+        """打开文件夹选择对话框"""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()  # 隐藏主窗口
+            root.attributes('-topmost', True)  # 窗口置顶
+            folder_path = filedialog.askdirectory(title="选择PDF文件夹")
+            root.destroy()
+            return folder_path if folder_path else None
+        except Exception as e:
+            st.warning(f"文件夹选择器不可用: {e}，请手动输入路径")
+            return None
+    
+    # 初始化PDF目录路径
+    if 'pdf_dir' not in st.session_state:
+        st.session_state['pdf_dir'] = "年报PDF"
+    
+    # 文件夹选择按钮和输入框
+    col1, col2 = st.sidebar.columns([3, 1])
+    with col1:
+        # 不使用key参数，直接通过value参数控制，这样选择文件夹后可以立即更新
+        pdf_dir = st.text_input(
+            "PDF目录路径", 
+            value=st.session_state.get('pdf_dir', "年报PDF")
+        )
+        # 如果输入框的值改变了，更新session_state
+        if pdf_dir:
+            st.session_state['pdf_dir'] = pdf_dir
+    with col2:
+        if st.button("📁 选择", use_container_width=True, help="点击选择文件夹", key="select_folder_btn"):
+            selected_folder = select_folder()
+            if selected_folder:
+                # 直接更新session_state，然后rerun，输入框会自动使用新的value
+                st.session_state['pdf_dir'] = selected_folder
+                st.rerun()  # 刷新页面以更新输入框
+    
     run_btn = st.sidebar.button("🚀 开始提取", type="primary", use_container_width=True)
     if not run_btn:
-        st.info("输入PDF目录并点击开始提取。")
+        st.info("选择或输入PDF目录并点击开始提取。")
         return
 
     try:
+        # 使用session_state中的pdf_dir
+        actual_pdf_dir = st.session_state.get('pdf_dir', pdf_dir)
+        
+        # 显示当前使用的路径（用于调试）
+        if actual_pdf_dir:
+            st.info(f"📂 当前PDF目录: `{actual_pdf_dir}`")
+        
+        if not actual_pdf_dir:
+            st.error("❌ 请选择或输入PDF目录路径")
+            return
+            
+        # 检查目录是否存在
+        if not os.path.exists(actual_pdf_dir):
+            st.error(f"❌ PDF目录不存在: `{actual_pdf_dir}`")
+            st.info("💡 请检查路径是否正确，或使用【📁 选择】按钮重新选择文件夹")
+            return
+        
+        # 检查目录中是否有PDF文件
+        pdf_files = [f for f in os.listdir(actual_pdf_dir) if f.lower().endswith('.pdf')]
+        if not pdf_files:
+            st.warning(f"⚠️ 目录中没有找到PDF文件: `{actual_pdf_dir}`")
+            st.info("💡 请确保目录中包含年报PDF文件")
+        else:
+            st.success(f"✓ 找到 {len(pdf_files)} 个PDF文件")
+        
         results = {}
         if market == "A股":
-            # 批量提取
-            res = emp_a.batch_extract_employee_count_from_pdfs(pdf_dir, output_csv=None)
+            # 批量提取（传递股票代码）
+            res = emp_a.batch_extract_employee_count_from_pdfs(actual_pdf_dir, output_csv=None, stock_code=symbol)
             results = {k: v for k, v in res.items()}
         else:
             # 港股按年份提取
-            res = emp_hk.extract_employee_count_by_year_from_pdfs(pdf_dir, symbol, start_year, end_year)
+            res = emp_hk.extract_employee_count_by_year_from_pdfs(actual_pdf_dir, symbol, start_year, end_year)
             results = {f"{year}年": count for year, count in res.items()}
 
         if not results:

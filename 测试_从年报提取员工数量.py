@@ -585,6 +585,56 @@ def process_directory(directory_path: str, verbose: bool = False, stock_code: Op
     
     return results
 
+def batch_extract_employee_count_from_pdfs(pdf_dir: str, output_csv: Optional[str] = None, stock_code: Optional[str] = None) -> Dict[str, Optional[int]]:
+    """
+    批量从PDF目录中提取员工数量（兼容统一财务工具的接口）
+    
+    参数:
+        pdf_dir: PDF文件目录
+        output_csv: 输出CSV文件路径（可选，如果为None则自动保存到目录）
+        stock_code: 股票代码（可选，如果提供则用于CSV文件名）
+    
+    返回:
+        字典，格式为 {文件名: 员工数量}
+    """
+    # 使用process_directory处理目录（verbose=False减少输出）
+    # 如果提供了stock_code，则传递给process_directory；否则尝试从文件名提取
+    results = process_directory(pdf_dir, verbose=False, stock_code=stock_code)
+    
+    # 转换为字典格式 {文件名: 员工数量}
+    result_dict = {}
+    for file_path, year, employee_count in results:
+        filename = os.path.basename(file_path)
+        result_dict[filename] = employee_count
+    
+    # 注意：process_directory已经自动保存CSV到目录，output_csv参数主要用于兼容接口
+    # 如果需要保存到指定路径，可以在这里处理
+    if output_csv and output_csv != os.path.join(pdf_dir, "员工数量.csv"):
+        # 尝试从结果中提取股票代码和年份数据
+        stock_code = None
+        csv_data = []
+        for file_path, year, employee_count in results:
+            if year is not None:
+                if stock_code is None:
+                    stock_code = extract_stock_code_from_filename(os.path.basename(file_path))
+                csv_data.append((year, employee_count))
+        
+        # 如果提取到了数据，保存到指定路径
+        if csv_data and stock_code:
+            # 确保输出目录存在
+            output_dir = os.path.dirname(output_csv) if os.path.dirname(output_csv) else "."
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            
+            # 保存CSV文件
+            with open(output_csv, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(['年份', '员工数量'])
+                for year, count in sorted(csv_data):
+                    writer.writerow([year, count if count else ''])
+    
+    return result_dict
+
 def print_summary(results: List[Tuple[str, Optional[int], Optional[int]]]):
     """
     打印处理结果汇总
