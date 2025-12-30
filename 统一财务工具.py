@@ -253,7 +253,8 @@ def run_financial_analysis():
             st.session_state[session_key] = results
             st.session_state[f"{session_key}_company"] = company_name
             st.session_state[f"{session_key}_timestamp"] = timestamp
-            st.session_state[f"{session_key}_filepath"] = os.path.join("output", f"{company_name}_{start_year}-{end_year}_{'财务分析' if market=='A股' else '港股财务分析'}_{timestamp}.xlsx")
+            # 注意：save_to_excel函数统一使用"财务分析"作为文件名，不区分A股/港股
+            st.session_state[f"{session_key}_filepath"] = os.path.join("output", f"{company_name}_{start_year}-{end_year}_财务分析_{timestamp}.xlsx")
 
         except Exception as e:
             st.error(f"分析失败：{e}")

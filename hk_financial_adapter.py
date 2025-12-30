@@ -7,8 +7,50 @@
 
 import akshare as ak
 import pandas as pd
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from datetime import datetime
+
+# 缓存年结日信息，避免重复查询
+_fiscal_year_end_cache = {}
+
+def get_fiscal_year_end(symbol: str) -> Tuple[int, int]:
+    """
+    获取港股公司的年结日（财年结束日期）
+    
+    参数:
+        symbol: 港股代码（5位数字，如 "00700"）
+    
+    返回:
+        (月, 日) 元组，如 (12, 31) 表示12月31日，(3, 31) 表示3月31日
+    """
+    symbol_clean = symbol.replace('.HK', '').zfill(5)
+    
+    # 检查缓存
+    if symbol_clean in _fiscal_year_end_cache:
+        return _fiscal_year_end_cache[symbol_clean]
+    
+    # 默认年结日为12月31日
+    default_fiscal_end = (12, 31)
+    
+    try:
+        # 从公司概况获取年结日
+        profile = ak.stock_hk_company_profile_em(symbol=symbol_clean)
+        
+        if profile is not None and not profile.empty and '年结日' in profile.columns:
+            fiscal_year_end = profile['年结日'].iloc[0]
+            if fiscal_year_end and str(fiscal_year_end) not in ['N/A', 'nan', '']:
+                # 解析年结日，格式通常是 "12-31" 或 "03-31"
+                parts = str(fiscal_year_end).split('-')
+                if len(parts) == 2:
+                    month = int(parts[0])
+                    day = int(parts[1])
+                    _fiscal_year_end_cache[symbol_clean] = (month, day)
+                    return (month, day)
+    except Exception as e:
+        print(f"[WARNING] 获取年结日失败: {e}")
+    
+    _fiscal_year_end_cache[symbol_clean] = default_fiscal_end
+    return default_fiscal_end
 
 def is_hk_stock(symbol: str) -> bool:
     """
@@ -256,6 +298,7 @@ def get_hk_column_mapping(sheet_type: str) -> Dict[str, str]:
             '已付职工薪酬': 'PAY_STAFF_CASH',  # 支付给职工以及为职工支付的现金（备选）
             '固定资产折旧': 'FIXED_ASSET_DEPR',  # 固定资产折旧
             '折旧及摊销': 'FIXED_ASSET_DEPR',  # 固定资产折旧（备选）
+            '加:折旧及摊销': 'FIXED_ASSET_DEPR',  # 固定资产折旧（港股常见格式）
         }
     else:
         return {}
@@ -330,6 +373,7 @@ def map_hk_columns_to_a_stock(df: pd.DataFrame, sheet_type: str) -> pd.DataFrame
             '已付职工薪酬': 'PAY_STAFF_CASH',  # 支付给职工以及为职工支付的现金（备选）
             '固定资产折旧': 'FIXED_ASSET_DEPR',  # 固定资产折旧
             '折旧及摊销': 'FIXED_ASSET_DEPR',  # 固定资产折旧（备选）
+            '加:折旧及摊销': 'FIXED_ASSET_DEPR',  # 固定资产折旧（港股常见格式）
         }
     else:
         column_mapping = {}
@@ -385,17 +429,24 @@ def extract_profit_from_hk_indicator(analysis_indicator: pd.DataFrame) -> Option
     
     return profit_data if not profit_data.empty else None
 
-def extract_year_data_hk(df: pd.DataFrame, year: int, date_col_name: str = 'REPORT_DATE') -> Optional[pd.Series]:
+def extract_year_data_hk(df: pd.DataFrame, year: int, date_col_name: str = 'REPORT_DATE', 
+                         fiscal_year_end: Tuple[int, int] = None, symbol: str = None) -> Optional[pd.Series]:
     """
     从港股数据框中提取指定年份的数据
     
     参数:
         df: 数据框（宽格式，每行一个报告期）
-        year: 年份，如 2024
+        year: 年份，如 2024（用户想要查询的自然年）
         date_col_name: 报告期列名
+        fiscal_year_end: 年结日 (月, 日)，如 (12, 31) 或 (3, 31)，如果为None则尝试自动获取
+        symbol: 股票代码，用于获取年结日（如果fiscal_year_end为None）
     
     返回:
         该年份的数据行（Series），如果没有则返回None
+    
+    说明:
+        - 对于12月31日年结的公司，2023年匹配 2023-12-31
+        - 对于3月31日年结的公司，2023年匹配 2024-03-31（因为FY2024覆盖2023年4月-2024年3月）
     """
     if df is None or df.empty:
         return None
@@ -410,17 +461,49 @@ def extract_year_data_hk(df: pd.DataFrame, year: int, date_col_name: str = 'REPO
     if date_col is None:
         return None
     
-    # 筛选指定年份的年报数据（12-31）
-    year_str = str(year)
+    # 如果没有提供年结日，尝试从symbol获取
+    if fiscal_year_end is None:
+        if symbol:
+            fiscal_year_end = get_fiscal_year_end(symbol)
+        else:
+            fiscal_year_end = (12, 31)  # 默认12月31日
     
-    # 尝试多种日期格式匹配
+    month_end, day_end = fiscal_year_end
+    
+    # 根据年结日确定要匹配的报告日期
+    # 对于非12月年结的公司，报告日期在下一年
+    if month_end == 12:
+        # 12月31日年结：2023年 -> 2023-12-31
+        report_year = year
+    else:
+        # 非12月年结（如3月31日）：2023年 -> 2024-03-31
+        # 因为2023年4月到2024年3月的财年，报告日期是2024-03-31
+        report_year = year + 1
+    
+    # 格式化月日
+    month_str = f"{month_end:02d}"
+    day_str = f"{day_end:02d}"
+    date_pattern = f"{month_str}-{day_str}"
+    
+    # 筛选数据
+    year_str = str(report_year)
+    
     filtered = df[
         df[date_col].astype(str).str.contains(year_str, na=False) &
-        df[date_col].astype(str).str.contains('12-31', na=False)
+        df[date_col].astype(str).str.contains(date_pattern, na=False)
     ]
     
     if not filtered.empty:
         return filtered.iloc[-1]  # 取最后一条（最新的）
+    
+    # 如果按年结日没找到，尝试宽松匹配（只匹配年份）
+    # 这是一个回退策略，用于处理一些特殊情况
+    if filtered.empty:
+        year_only_filtered = df[
+            df[date_col].astype(str).str.contains(year_str, na=False)
+        ]
+        if not year_only_filtered.empty:
+            return year_only_filtered.iloc[-1]
     
     return None
 

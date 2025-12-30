@@ -15,6 +15,7 @@ import os
 import re
 import csv
 import pdfplumber
+import pandas as pd
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 import sys
@@ -393,4 +394,93 @@ if __name__ == "__main__":
             print(f"{year}年: {count:,} 人")
         else:
             print(f"{year}年: 未找到")
+
+
+def get_hk_current_employee_count(symbol: str) -> Optional[int]:
+    """
+    从东方财富获取港股公司当前员工数量
+    
+    参数:
+        symbol: 港股代码（5位，如 00700）
+    
+    返回:
+        员工数量（整数），如果获取失败返回None
+    """
+    try:
+        import akshare as ak
+        
+        # 标准化代码
+        symbol_clean = symbol.zfill(5)
+        
+        # 获取公司概况
+        df = ak.stock_hk_company_profile_em(symbol=symbol_clean)
+        
+        if df is not None and '员工人数' in df.columns:
+            employee_count = df['员工人数'].values[0]
+            
+            # 处理可能的非数值情况
+            if pd.isna(employee_count) or employee_count == 'N/A' or employee_count == '':
+                return None
+            
+            # 转换为整数
+            try:
+                return int(employee_count)
+            except (ValueError, TypeError):
+                return None
+        
+        return None
+        
+    except Exception as e:
+        print(f"获取港股员工数量失败: {e}")
+        return None
+
+
+def get_hk_employee_info(symbol: str) -> Dict:
+    """
+    获取港股公司员工相关信息（包括当前员工数量和公司基本信息）
+    
+    参数:
+        symbol: 港股代码（5位，如 00700）
+    
+    返回:
+        包含员工信息的字典
+    """
+    result = {
+        'symbol': symbol,
+        'employee_count': None,
+        'company_name': None,
+        'industry': None,
+        'chairman': None,
+        'data_source': '东方财富'
+    }
+    
+    try:
+        import akshare as ak
+        
+        symbol_clean = symbol.zfill(5)
+        df = ak.stock_hk_company_profile_em(symbol=symbol_clean)
+        
+        if df is not None and not df.empty:
+            # 提取各项信息
+            if '员工人数' in df.columns:
+                emp = df['员工人数'].values[0]
+                if emp and str(emp) not in ['N/A', 'nan', '']:
+                    try:
+                        result['employee_count'] = int(emp)
+                    except:
+                        pass
+            
+            if '公司名称' in df.columns:
+                result['company_name'] = df['公司名称'].values[0]
+            
+            if '所属行业' in df.columns:
+                result['industry'] = df['所属行业'].values[0]
+            
+            if '董事长' in df.columns:
+                result['chairman'] = df['董事长'].values[0]
+        
+    except Exception as e:
+        print(f"获取港股公司信息失败: {e}")
+    
+    return result
 

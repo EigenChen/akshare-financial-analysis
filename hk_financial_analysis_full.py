@@ -37,8 +37,13 @@ if sys.platform == 'win32' and not is_streamlit_env():
 from hk_financial_adapter import (
     get_hk_annual_data, extract_year_data_hk, 
     get_value_from_row_hk, get_hk_symbol_name,
-    get_hk_employee_count, get_hk_employee_count_by_year
+    get_hk_employee_count, get_hk_employee_count_by_year,
+    get_fiscal_year_end
 )
+
+# 模块级变量：存储当前处理的股票代码和年结日
+_current_symbol = None
+_current_fiscal_year_end = None
 
 # 导入A股计算函数（字段名已统一，可以直接复用）
 import importlib.util
@@ -63,14 +68,28 @@ save_to_excel = financial_analysis.save_to_excel
 def get_annual_data_hk_wrapper(symbol, start_year=2015, end_year=2024):
     """
     港股数据获取包装函数，接口与A股一致
+    同时设置当前处理的股票代码和年结日
     """
+    global _current_symbol, _current_fiscal_year_end
+    _current_symbol = symbol
+    _current_fiscal_year_end = get_fiscal_year_end(symbol)
+    
+    # 打印年结日信息（方便调试）
+    month, day = _current_fiscal_year_end
+    if month != 12 or day != 31:
+        print(f"[INFO] {symbol} 年结日为 {month:02d}-{day:02d}（非自然年）")
+    
     return get_hk_annual_data(symbol, start_year, end_year)
 
 def extract_year_data_hk_wrapper(df, year, date_col_name='REPORT_DATE'):
     """
     港股年份数据提取包装函数，接口与A股一致
+    使用模块级变量获取当前股票的年结日
     """
-    return extract_year_data_hk(df, year, date_col_name)
+    global _current_symbol, _current_fiscal_year_end
+    return extract_year_data_hk(df, year, date_col_name, 
+                                fiscal_year_end=_current_fiscal_year_end, 
+                                symbol=_current_symbol)
 
 def get_value_from_row_hk_wrapper(row, column_name, default="-", return_numeric=True):
     """
