@@ -1280,11 +1280,27 @@ def load_employee_count_from_csv(csv_path: str) -> Dict[int, int]:
         return employee_data
     
     try:
-        df = pd.read_csv(csv_path, encoding='utf-8-sig')
+        # 尝试多种编码方式读取CSV文件
+        encodings = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'gb18030']
+        df = None
+        encoding_used = None
+        
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(csv_path, encoding=encoding)
+                encoding_used = encoding
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        
+        if df is None:
+            print(f"  ⚠ 无法读取CSV文件，尝试了多种编码方式都失败: {csv_path}")
+            return employee_data
         
         # 检查列名
         if '年份' not in df.columns or '员工数量' not in df.columns:
             print(f"  ⚠ CSV文件格式不正确，需要包含'年份'和'员工数量'列")
+            print(f"     实际列名: {list(df.columns)}")
             return employee_data
         
         # 读取数据

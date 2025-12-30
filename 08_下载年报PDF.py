@@ -55,7 +55,7 @@ def get_stock_market(symbol: str) -> str:
 
 def search_announcements_cninfo(symbol: str, year: Optional[int] = None, announcement_type: str = "年度报告") -> List[Dict]:
     """
-    从巨潮资讯网搜索公告
+    从巨潮资讯网搜索公告（使用巨潮资讯网的公告查询API）
     
     参数:
         symbol: 股票代码
@@ -69,76 +69,179 @@ def search_announcements_cninfo(symbol: str, year: Optional[int] = None, announc
     
     # 判断交易所
     if symbol_clean.startswith(('600', '601', '603', '605', '688')):
-        plate = 'sse'  # 上交所
+        plate = 'sh'  # 上交所
+        column = 'sse'
     else:
-        plate = 'szse'  # 深交所
+        plate = 'sz'  # 深交所
+        column = 'szse'
     
-    # 巨潮资讯网公告查询API（根据实际网站调整）
-    # 注意：这个API可能需要根据网站实际情况调整
-    search_url = "http://www.cninfo.com.cn/new/information/topSearch/query"
+    # 巨潮资讯网公告历史查询API
+    search_url = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'http://www.cninfo.com.cn/',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest'
+        'Referer': 'http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search',
+        'Accept': 'application/json, text/plain, */*',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'http://www.cninfo.com.cn',
     }
     
     # 构建搜索参数
-    params = {
-        'keyWord': symbol_clean,
-        'maxSecMarket': plate,
-        'minSecMarket': plate,
-    }
+    # 年报通常在第二年3-4月发布，所以搜索(year+1)年的公告
+    # 扩大搜索范围到整年，以防某些公司延迟发布
+    if year:
+        se_date = f"{year+1}-01-01~{year+1}-12-31"  # 扩大到整年
+    else:
+        se_date = ""
     
-    # 构建完整搜索URL
-    from urllib.parse import urlencode
-    full_search_url = f"{search_url}?{urlencode(params)}"
-    print(f"[搜索URL] {full_search_url}")
+    # 准备多种搜索策略
+    search_strategies = [
+        # 策略1：使用股票代码作为搜索关键词
+        {
+            'pageNum': '1',
+            'pageSize': '30',
+            'column': column,
+            'tabName': 'fulltext',
+            'plate': '',
+            'stock': '',
+            'searchkey': symbol_clean,
+            'secid': '',
+            'category': 'category_ndbg_szsh',
+            'trade': '',
+            'seDate': se_date,
+            'sortName': '',
+            'sortType': '',
+            'isHLtitle': 'true',
+        },
+        # 策略2：不限制日期范围，用年份关键词
+        {
+            'pageNum': '1',
+            'pageSize': '50',
+            'column': column,
+            'tabName': 'fulltext',
+            'plate': '',
+            'stock': '',
+            'searchkey': f"{symbol_clean} {year}年" if year else symbol_clean,
+            'secid': '',
+            'category': 'category_ndbg_szsh',
+            'trade': '',
+            'seDate': '',  # 不限制日期
+            'sortName': '',
+            'sortType': '',
+            'isHLtitle': 'true',
+        },
+    ]
     
-    try:
-        response = requests.get(search_url, params=params, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            try:
-                data = response.json()
-            except:
-                return []
+    print(f"  [巨潮资讯网API] 搜索股票: {symbol_clean}, 年份: {year if year else '全部'}, 日期范围: {se_date}")
+    
+    # 尝试多种搜索策略
+    for strategy_idx, data in enumerate(search_strategies, 1):
+        try:
+            response = requests.post(search_url, headers=headers, data=data, timeout=30)
             
-            announcements = []
-            
-            # 解析返回的数据结构（需要根据实际返回格式调整）
-            # 可能的格式：{'records': [...]} 或直接是列表
-            records = []
-            if isinstance(data, dict):
-                # 尝试多种可能的键名
-                for key in ['records', 'data', 'list', 'announcements']:
-                    if key in data:
-                        records = data[key]
-                        break
-            elif isinstance(data, list):
-                records = data
-            
-            # 筛选公告
-            for record in records:
-                if not isinstance(record, dict):
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                except Exception as json_error:
+                    print(f"  ⚠ JSON解析失败: {json_error}")
                     continue
                 
-                title = str(record.get('announcementTitle', record.get('title', '')))
-                time_str = str(record.get('announcementTime', record.get('time', record.get('announcementDate', ''))))
+                announcements = []
                 
-                # 筛选年度报告
-                if announcement_type in title:
-                    # 如果指定了年份，检查年份
-                    if year is None or str(year) in time_str:
-                        announcements.append(record)
-            
-            return announcements
-        else:
-            return []
-            
-    except Exception as e:
-        return []
+                # 解析返回的数据
+                if isinstance(result, dict):
+                    # 获取公告列表
+                    ann_list = result.get('announcements', [])
+                    total_count = result.get('totalAnnouncement', 0)
+                    
+                    print(f"  ✓ 策略{strategy_idx}找到 {total_count} 条公告记录")
+                    
+                    if not ann_list:
+                        if strategy_idx < len(search_strategies):
+                            print(f"  ⚠ 公告列表为空，尝试下一个搜索策略...")
+                            continue
+                        else:
+                            print(f"  ⚠ 公告列表为空")
+                            return []
+                    
+                    # 筛选年度报告（排除摘要、英文版等）
+                    for ann in ann_list:
+                        title = ann.get('announcementTitle', '')
+                        ann_id = ann.get('announcementId', '')
+                        ann_time = ann.get('announcementTime', '')
+                        sec_code = ann.get('secCode', '')  # 公告对应的股票代码
+                        
+                        # 转换时间戳为日期字符串
+                        if isinstance(ann_time, (int, float)):
+                            from datetime import datetime
+                            ann_time = datetime.fromtimestamp(ann_time / 1000).strftime('%Y-%m-%d')
+                        
+                        # 首先检查股票代码是否匹配（因为searchkey可能返回多个股票的结果）
+                        if sec_code and sec_code != symbol_clean:
+                            continue  # 跳过非目标股票的公告
+                        
+                        # 打印调试信息
+                        print(f"    - [{sec_code}] {title[:55]}... (ID: {ann_id})")
+                        
+                        # 筛选：只要年度报告全文，排除摘要、英文版、更正公告等
+                        is_valid_annual_report = (
+                            ('年度报告' in title or '年报' in title) and
+                            '摘要' not in title and
+                            '英文' not in title and
+                            '更正' not in title and
+                            '补充' not in title and
+                            '修订' not in title
+                        )
+                        
+                        # 如果指定了年份，检查标题中是否包含该年份
+                        if year:
+                            year_match = str(year) in title
+                        else:
+                            year_match = True
+                        
+                        if is_valid_annual_report and year_match:
+                            announcement = {
+                                'announcementId': str(ann_id),
+                                'id': str(ann_id),
+                                'announcementTitle': title,
+                                'title': title,
+                                'announcementTime': ann_time,
+                                'time': ann_time,
+                                'secCode': sec_code or symbol_clean,
+                                'secName': ann.get('secName', ''),
+                                'orgId': ann.get('orgId', ''),  # 从返回数据获取orgId
+                                'adjunctUrl': ann.get('adjunctUrl', ''),  # PDF相对路径
+                            }
+                            announcements.append(announcement)
+                            print(f"  ✓ 匹配到年报: {title[:50]}...")
+                    
+                    # 如果找到了匹配的年报，返回结果
+                    if announcements:
+                        print(f"  [结果] 找到 {len(announcements)} 个匹配的年报公告")
+                        return announcements
+                    else:
+                        # 没找到匹配的年报，尝试下一个策略
+                        if strategy_idx < len(search_strategies):
+                            print(f"  ⚠ 未找到匹配的年报，尝试下一个搜索策略...")
+                            continue
+                else:
+                    print(f"  ⚠ 返回数据格式异常: {type(result)}")
+                    continue
+            else:
+                print(f"  ⚠ HTTP状态码: {response.status_code}")
+                if strategy_idx < len(search_strategies):
+                    continue
+                    
+        except Exception as e:
+            print(f"  ✗ 策略{strategy_idx}搜索失败: {str(e)}")
+            if strategy_idx < len(search_strategies):
+                continue
+            import traceback
+            traceback.print_exc()
+    
+    # 所有策略都失败
+    print(f"  ⚠ 所有搜索策略都未找到匹配的年报")
+    return []
 
 def download_pdf_from_cninfo_url(url: str, save_dir: str = "年报PDF", filename: Optional[str] = None) -> Optional[str]:
     """
@@ -299,41 +402,101 @@ def download_from_cninfo(symbol: str, year: int, save_dir: str = "年报PDF") ->
         下载的文件路径，如果失败返回None
     """
     try:
+        os.makedirs(save_dir, exist_ok=True)
+        
         # 搜索年报公告
         announcements = search_announcements_cninfo(symbol, year)
         
         if not announcements:
+            print(f"  ⚠ 未找到 {year} 年的年报公告")
             return None
         
         # 使用第一个匹配的公告
         announcement = announcements[0]
         announcement_id = announcement.get('announcementId') or announcement.get('id')
-        announcement_time = announcement.get('announcementTime') or announcement.get('time') or announcement.get('announcementDate', '')
+        announcement_time = announcement.get('announcementTime') or announcement.get('time', '')
+        adjunct_url = announcement.get('adjunctUrl', '')
+        title = announcement.get('announcementTitle', '')
+        
+        print(f"  [选择公告] {title[:60]}...")
+        print(f"  [公告ID] {announcement_id}")
+        print(f"  [公告日期] {announcement_time}")
         
         if not announcement_id:
+            print(f"  ⚠ 未获取到公告ID")
             return None
         
-        # 构建公告详情页URL
         symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
-        if symbol_clean.startswith(('600', '601', '603', '605', '688')):
-            plate = 'sse'
-        else:
-            plate = 'szse'
         
-        # 尝试从公告数据中获取orgId，如果没有则使用默认格式
-        org_id = announcement.get('orgId') or announcement.get('orgCode') or f"gssh{symbol_clean}"
+        # 构建PDF下载URL列表（多种格式）
+        download_urls = []
         
-        detail_url = f"https://www.cninfo.com.cn/new/disclosure/detail?plate={plate}&orgId={org_id}&stockCode={symbol_clean}&announcementId={announcement_id}"
+        # 方式1：使用adjunctUrl（最可靠）
+        if adjunct_url:
+            pdf_url = f"http://static.cninfo.com.cn/{adjunct_url}"
+            download_urls.append(pdf_url)
+            print(f"  [PDF路径] {pdf_url}")
+        
+        # 方式2：使用公告ID直接下载
+        download_urls.append(f"http://www.cninfo.com.cn/new/disclosure/detail/download?announcementId={announcement_id}")
+        download_urls.append(f"https://www.cninfo.com.cn/new/disclosure/detail/download?announcementId={announcement_id}")
+        
+        # 方式3：尝试静态页面格式
         if announcement_time:
-            detail_url += f"&announcementTime={announcement_time}"
+            date_str = announcement_time.replace('-', '')
+            download_urls.append(f"http://static.cninfo.com.cn/finalpage/{date_str}/{announcement_id}.PDF")
         
-        print(f"[公告详情页URL] {detail_url}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'http://www.cninfo.com.cn/',
+            'Accept': 'application/pdf,application/octet-stream,*/*'
+        }
         
-        # 下载PDF
+        # 尝试下载
         filename = f"{symbol_clean}_{year}年年度报告.pdf"
-        return download_pdf_from_cninfo_url(detail_url, save_dir, filename)
+        filepath = os.path.join(save_dir, filename)
+        
+        for idx, url in enumerate(download_urls, 1):
+            try:
+                print(f"  [尝试下载 {idx}/{len(download_urls)}] {url[:80]}...")
+                response = requests.get(url, headers=headers, timeout=120, stream=True, allow_redirects=True)
+                
+                if response.status_code == 200:
+                    content_type = response.headers.get('Content-Type', '')
+                    content_length = int(response.headers.get('Content-Length', '0'))
+                    
+                    print(f"    -> 状态码: 200, Content-Type: {content_type}, 大小: {content_length/1024:.1f}KB")
+                    
+                    # 检查是否是有效的PDF（通过Content-Type或文件大小判断）
+                    if 'pdf' in content_type.lower() or content_length > 50000:  # 年报PDF通常大于50KB
+                        # 保存文件
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        
+                        # 验证文件大小
+                        file_size = os.path.getsize(filepath)
+                        if file_size > 50000:  # 至少50KB
+                            print(f"  ✓ 下载成功: {filepath} ({file_size/1024:.1f}KB)")
+                            return filepath
+                        else:
+                            print(f"    -> ✗ 文件太小 ({file_size}字节)，可能不是有效PDF")
+                            os.remove(filepath)
+                    else:
+                        print(f"    -> ✗ 响应不是PDF格式")
+                else:
+                    print(f"    -> ✗ 状态码: {response.status_code}")
+            except Exception as e:
+                print(f"    -> ✗ 下载失败: {str(e)}")
+                continue
+        
+        print(f"  ✗ 所有下载方式都失败")
+        return None
             
     except Exception as e:
+        print(f"  ✗ 下载过程出错: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def download_from_sse(symbol: str, year: int, save_dir: str = "年报PDF") -> Optional[str]:

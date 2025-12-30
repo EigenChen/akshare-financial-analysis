@@ -56,7 +56,14 @@ st.set_page_config(
 # -----------------------------
 st.sidebar.header("🌍 市场与功能")
 market = st.sidebar.radio("选择市场", ["A股", "港股"], horizontal=True)
-feature = st.sidebar.radio("选择功能", ["📊 财务分析", "📄 报表下载", "👥 员工数量提取"])
+
+# 功能列表（A股有年报PDF下载，港股暂不支持）
+if market == "A股":
+    feature_options = ["📊 财务分析", "📄 报表下载", "👥 员工数量提取", "📥 年报PDF下载"]
+else:
+    feature_options = ["📊 财务分析", "📄 报表下载", "👥 员工数量提取"]
+
+feature = st.sidebar.radio("选择功能", feature_options)
 
 # 公共输入：股票代码与年份
 st.sidebar.markdown("---")
@@ -700,10 +707,182 @@ def run_employee_extraction():
         st.code(traceback.format_exc())
 
 # -----------------------------
+# 功能 4：年报PDF下载（仅A股）
+# -----------------------------
+def run_pdf_download():
+    st.header("📥 年报PDF下载")
+    st.info("从巨潮资讯网下载A股上市公司年度报告PDF")
+    
+    # 加载下载模块
+    try:
+        pdf_dl = load_module("pdf_downloader", "08_下载年报PDF.py")
+    except Exception as e:
+        st.error(f"加载下载模块失败：{e}")
+        return
+    
+    # 文件夹选择功能
+    def select_save_folder():
+        """打开文件夹选择对话框"""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            folder_path = filedialog.askdirectory(title="选择PDF保存目录")
+            root.destroy()
+            return folder_path if folder_path else None
+        except Exception as e:
+            st.warning(f"文件夹选择器不可用: {e}，请手动输入路径")
+            return None
+    
+    # 初始化保存路径
+    if 'pdf_save_dir' not in st.session_state:
+        st.session_state['pdf_save_dir'] = "年报PDF"
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📁 下载设置")
+    
+    # 保存路径选择（不使用key参数，通过value直接控制）
+    col1, col2 = st.sidebar.columns([3, 1])
+    with col1:
+        save_dir = st.text_input(
+            "保存目录",
+            value=st.session_state.get('pdf_save_dir', "年报PDF")
+        )
+        # 如果用户手动输入了路径，更新session_state
+        if save_dir and save_dir != st.session_state.get('pdf_save_dir'):
+            st.session_state['pdf_save_dir'] = save_dir
+    with col2:
+        if st.button("📁", use_container_width=True, help="选择保存文件夹", key="select_save_folder_btn"):
+            selected_folder = select_save_folder()
+            if selected_folder:
+                st.session_state['pdf_save_dir'] = selected_folder
+                st.rerun()
+    
+    # 下载按钮
+    download_btn = st.sidebar.button("🚀 开始下载", type="primary", use_container_width=True, key="download_pdf_btn")
+    
+    # 显示当前设置
+    st.markdown("### 📋 下载设置")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.write(f"**股票代码：** {symbol}")
+        st.write(f"**年份范围：** {start_year} - {end_year}")
+    with col_info2:
+        actual_save_dir = st.session_state.get('pdf_save_dir', save_dir)
+        st.write(f"**保存目录：** `{actual_save_dir}`")
+        # 检查目录
+        if os.path.exists(actual_save_dir):
+            existing_pdfs = [f for f in os.listdir(actual_save_dir) if f.lower().endswith('.pdf')]
+            st.write(f"**已有文件：** {len(existing_pdfs)} 个PDF")
+        else:
+            st.write("**目录状态：** 将自动创建")
+    
+    if not download_btn:
+        st.markdown("---")
+        st.markdown("""
+        ### 📖 使用说明
+        1. 在左侧输入 **股票代码**（6位数字，如 600900）
+        2. 设置 **起始年份** 和 **结束年份**
+        3. 选择或输入 **PDF保存目录**
+        4. 点击 **开始下载** 按钮
+        
+        ### ⚠️ 注意事项
+        - 年报PDF通常在次年3-4月发布（如2023年年报在2024年4月前发布）
+        - 下载需要网络连接，请确保网络通畅
+        - 单个年报PDF文件较大（几MB到几十MB），请耐心等待
+        """)
+        return
+    
+    # 执行下载
+    st.markdown("---")
+    st.markdown("### 📥 下载进度")
+    
+    actual_save_dir = st.session_state.get('pdf_save_dir', save_dir)
+    
+    # 创建保存目录
+    os.makedirs(actual_save_dir, exist_ok=True)
+    
+    # 下载结果统计
+    results = {
+        'success': [],
+        'failed': []
+    }
+    
+    # 进度条
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    log_container = st.container()
+    
+    years = list(range(int(start_year), int(end_year) + 1))
+    total_years = len(years)
+    
+    for idx, year in enumerate(years):
+        status_text.text(f"正在下载 {year} 年年报... ({idx + 1}/{total_years})")
+        
+        with log_container:
+            st.write(f"**[{year}年]** 搜索中...")
+        
+        try:
+            # 调用下载函数
+            filepath = pdf_dl.download_annual_report(symbol, year, actual_save_dir)
+            
+            if filepath and os.path.exists(filepath):
+                file_size = os.path.getsize(filepath) / 1024 / 1024  # MB
+                results['success'].append({
+                    'year': year,
+                    'path': filepath,
+                    'size': f"{file_size:.2f} MB"
+                })
+                with log_container:
+                    st.success(f"✓ {year}年年报下载成功：{os.path.basename(filepath)} ({file_size:.2f} MB)")
+            else:
+                results['failed'].append({
+                    'year': year,
+                    'reason': '未找到年报或下载失败'
+                })
+                with log_container:
+                    st.warning(f"⚠ {year}年年报下载失败")
+        except Exception as e:
+            results['failed'].append({
+                'year': year,
+                'reason': str(e)
+            })
+            with log_container:
+                st.error(f"✗ {year}年年报下载出错：{e}")
+        
+        # 更新进度
+        progress_bar.progress((idx + 1) / total_years)
+    
+    # 显示下载结果汇总
+    st.markdown("---")
+    st.markdown("### 📊 下载结果")
+    
+    col_success, col_failed = st.columns(2)
+    
+    with col_success:
+        st.metric("下载成功", f"{len(results['success'])} 个")
+        if results['success']:
+            for item in results['success']:
+                st.write(f"- {item['year']}年：{item['size']}")
+    
+    with col_failed:
+        st.metric("下载失败", f"{len(results['failed'])} 个")
+        if results['failed']:
+            for item in results['failed']:
+                st.write(f"- {item['year']}年：{item['reason']}")
+    
+    # 打开保存目录按钮
+    if results['success']:
+        st.success(f"✅ 下载完成！文件保存在：`{actual_save_dir}`")
+
+
+# -----------------------------
 # 主路由
 # -----------------------------
 st.title("📊 统一财务工具（A股 + 港股）")
-st.caption("财务分析｜报表下载｜员工数量提取 —— 一站式界面")
+st.caption("财务分析｜报表下载｜员工数量提取｜年报下载 —— 一站式界面")
 st.markdown("---")
 
 if feature == "📊 财务分析":
@@ -712,6 +891,8 @@ elif feature == "📄 报表下载":
     run_report_download()
 elif feature == "👥 员工数量提取":
     run_employee_extraction()
+elif feature == "📥 年报PDF下载":
+    run_pdf_download()
 else:
     st.info("请选择左侧的功能开始。")
 
