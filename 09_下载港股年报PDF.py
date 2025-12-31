@@ -5,20 +5,21 @@
 数据来源：香港交易所披露易（HKEXnews）
 网址：https://www.hkexnews.hk
 
-⚠️ 重要说明：
-港交所披露易不提供简单的API接口，数据通过JavaScript动态加载。
-本脚本提供两种下载方式：
-1. 自动搜索下载（需要Selenium浏览器自动化）
-2. 手动输入URL下载（用户从网站复制PDF链接）
-
 使用方法：
-1. 命令行：python 09_下载港股年报PDF.py --symbol 00700 --start_year 2020 --end_year 2024
-2. 交互式：python 09_下载港股年报PDF.py
-3. 手动URL：python 09_下载港股年报PDF.py --url "PDF链接" --save_dir "保存目录"
+1. 从本地HTML解析下载（推荐）：
+   python 09_下载港股年报PDF.py --html "搜索结果.html" --save_dir "小米年报"
+   
+2. 手动URL下载：
+   python 09_下载港股年报PDF.py --url "PDF链接" --save_dir "保存目录"
 
-注意：
-- 股票代码为5位数字，如 00700（腾讯）、00941（中国移动）
-- 年报通常在次年3-4月发布
+3. 交互式模式：
+   python 09_下载港股年报PDF.py --manual
+
+操作步骤：
+1. 在浏览器打开 https://www1.hkexnews.hk/search/titlesearch.xhtml
+2. 输入股票代码，选择"年度报告"，搜索
+3. Ctrl+S 保存网页为HTML文件
+4. 使用 --html 参数指定HTML文件路径进行解析下载
 """
 
 import os
@@ -29,6 +30,290 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import argparse
 import webbrowser
+
+
+def parse_html_for_annual_reports(html_path: str) -> List[Dict]:
+    """
+    从本地HTML文件解析年报PDF链接
+    
+    参数:
+        html_path: 本地HTML文件路径
+    
+    返回:
+        年报信息列表，包含 {year, title, pdf_url}
+    """
+    print(f"[解析] 读取HTML文件: {html_path}")
+    
+    try:
+        # 尝试多种编码
+        content = None
+        for encoding in ['utf-8', 'gbk', 'gb2312', 'big5']:
+            try:
+                with open(html_path, 'r', encoding=encoding) as f:
+                    content = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if not content:
+            print(f"  [X] 无法读取文件，请检查编码")
+            return []
+        
+        print(f"  文件大小: {len(content):,} 字节")
+        
+        results = []
+        
+        # 匹配年报PDF链接和标题
+        # 格式: <a href="URL">XXXX 年度報告</a> 或 <a href="URL">XXXX年度報告</a>
+        pattern = r'<a\s+href="(https://www1\.hkexnews\.hk/listedco/listconews/[^"]+\.pdf)"[^>]*>([^<]*年[度]?報告[^<]*)</a>'
+        matches = re.findall(pattern, content, re.IGNORECASE)
+        
+        if not matches:
+            # 尝试更宽松的匹配
+            pattern = r'href="(https://www1\.hkexnews\.hk/listedco/listconews/[^"]+\.pdf)"[^>]*>([^<]*)</a>'
+            matches = re.findall(pattern, content, re.IGNORECASE)
+        
+        for pdf_url, title in matches:
+            title = title.strip()
+            
+            # 跳过非年报
+            if '中期' in title or '半年' in title or 'interim' in title.lower():
+                continue
+            
+            # 提取年份
+            year_match = re.search(r'20(\d{2})', title)
+            if year_match:
+                year = int(f"20{year_match.group(1)}")
+            else:
+                # 从URL提取年份
+                url_year_match = re.search(r'/(\d{4})/', pdf_url)
+                if url_year_match:
+                    year = int(url_year_match.group(1)) - 1  # URL年份通常是发布年份
+                else:
+                    year = None
+            
+            # 确认是年报
+            is_annual = ('年報' in title or '年报' in title or 
+                        '年度報告' in title or '年度报告' in title or
+                        'annual' in title.lower())
+            
+            if is_annual and year:
+                results.append({
+                    'year': year,
+                    'title': title,
+                    'pdf_url': pdf_url,
+                })
+        
+        # 去重（按年份）
+        seen_years = set()
+        unique_results = []
+        for r in results:
+            if r['year'] not in seen_years:
+                seen_years.add(r['year'])
+                unique_results.append(r)
+        
+        # 按年份排序
+        unique_results.sort(key=lambda x: x['year'], reverse=True)
+        
+        print(f"  [OK] 找到 {len(unique_results)} 个年报")
+        for r in unique_results:
+            print(f"    {r['year']}年: {r['title'][:30]}...")
+        
+        return unique_results
+        
+    except Exception as e:
+        print(f"  [X] 解析失败: {e}")
+        return []
+
+
+def download_from_html(html_path: str, save_dir: str = "港股年报PDF", 
+                       symbol: str = None, years: List[int] = None) -> dict:
+    """
+    从HTML文件解析并下载年报
+    
+    参数:
+        html_path: HTML文件路径
+        save_dir: 保存目录
+        symbol: 股票代码（用于生成文件名）
+        years: 指定下载的年份列表，None表示下载所有
+    
+    返回:
+        下载结果统计
+    """
+    results = {'success': [], 'failed': []}
+    
+    print("=" * 70)
+    print("从HTML文件解析并下载港股年报")
+    print(f"HTML文件: {html_path}")
+    print(f"保存目录: {save_dir}")
+    print("=" * 70)
+    
+    # 解析HTML
+    reports = parse_html_for_annual_reports(html_path)
+    
+    if not reports:
+        print("\n[!] 未找到任何年报链接")
+        return results
+    
+    # 筛选年份
+    if years:
+        reports = [r for r in reports if r['year'] in years]
+        print(f"\n筛选后: {len(reports)} 个年报")
+    
+    # 尝试从HTML文件名或路径提取股票信息
+    if not symbol:
+        # 从路径中提取
+        path_match = re.search(r'(\d{5})', html_path)
+        if path_match:
+            symbol = path_match.group(1)
+        else:
+            symbol = "港股"
+    
+    symbol_clean = symbol.zfill(5) if symbol.isdigit() else symbol
+    
+    os.makedirs(save_dir, exist_ok=True)
+    
+    print(f"\n开始下载 {len(reports)} 个年报...")
+    
+    for report in reports:
+        year = report['year']
+        pdf_url = report['pdf_url']
+        title = report['title']
+        
+        print(f"\n[{year}年] {title[:40]}...")
+        
+        # 生成文件名
+        filename = f"{symbol_clean}_{year}年年度报告.pdf"
+        save_path = os.path.join(save_dir, filename)
+        
+        if download_pdf_from_url(pdf_url, save_path):
+            results['success'].append({'year': year, 'path': save_path})
+        else:
+            results['failed'].append({'year': year, 'reason': '下载失败'})
+        
+        time.sleep(1)
+    
+    # 打印汇总
+    print("\n" + "=" * 70)
+    print("下载完成！")
+    print(f"成功: {len(results['success'])} 个")
+    print(f"失败: {len(results['failed'])} 个")
+    
+    if results['success']:
+        print("\n成功下载:")
+        for item in results['success']:
+            print(f"  [OK] {item['year']}年: {item['path']}")
+    
+    if results['failed']:
+        print("\n下载失败:")
+        for item in results['failed']:
+            print(f"  [X] {item['year']}年: {item['reason']}")
+    
+    print("=" * 70)
+    
+    return results
+
+
+def search_hkex_annual_reports(symbol: str, start_year: int, end_year: int) -> List[Dict]:
+    """
+    搜索港交所披露易获取年报PDF链接
+    
+    参数:
+        symbol: 股票代码（5位）
+        start_year: 起始年份
+        end_year: 结束年份
+    
+    返回:
+        年报信息列表，包含 {year, title, pdf_url}
+    """
+    symbol_clean = symbol.zfill(5)
+    # 只取数字部分作为stockId
+    stock_id = symbol_clean.lstrip('0') or '0'
+    
+    # 搜索日期范围：年报在次年发布
+    from_date = f"{start_year + 1}0101"
+    to_date = f"{end_year + 1}1231"
+    
+    # 港交所搜索API
+    url = "https://www1.hkexnews.hk/search/titlesearch.xhtml"
+    params = {
+        'lang': 'ZH',
+        'category': '0',
+        'market': 'SEHK',
+        'searchType': '0',
+        'documentType': '40000',  # 年度报告
+        't1code': '40000',
+        't2Gcode': '-2',
+        't2code': '-2',
+        'stockId': stock_id,
+        'from': from_date,
+        'to': to_date,
+        'MB-Ede': '',
+        'sortDir': '0',
+        'sortByRecordDate': 'true',
+    }
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+    }
+    
+    print(f"  [搜索] 港交所披露易...")
+    
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        
+        if resp.status_code != 200:
+            print(f"  [X] HTTP状态码: {resp.status_code}")
+            return []
+        
+        # 提取PDF链接和标题
+        # 链接格式: href="/listedco/listconews/sehk/2024/0402/2024040200484_c.pdf"
+        # 标题格式: >2023 年報</a>
+        results = []
+        
+        # 提取所有PDF链接
+        pdf_pattern = r'href="(/listedco/listconews/[^"]+\.pdf)"[^>]*>([^<]*)</a>'
+        matches = re.findall(pdf_pattern, resp.text, re.IGNORECASE)
+        
+        for pdf_path, title in matches:
+            title = title.strip()
+            full_url = f"https://www1.hkexnews.hk{pdf_path}"
+            
+            # 尝试从标题或URL中提取年份
+            year_match = re.search(r'20(\d{2})', title) or re.search(r'/20(\d{2})/', pdf_path)
+            if year_match:
+                year = int(f"20{year_match.group(1)}")
+                # 如果是次年发布的年报，报告年份是上一年
+                if '年報' in title or '年报' in title or 'annual' in title.lower():
+                    report_year = year - 1  # 2024发布的是2023年报
+                else:
+                    report_year = year
+            else:
+                report_year = None
+            
+            # 筛选年度报告（排除中期报告等）
+            is_annual = (
+                ('年報' in title or '年报' in title or 'annual' in title.lower()) and
+                '中期' not in title and 'interim' not in title.lower() and
+                '半年' not in title
+            )
+            
+            if is_annual:
+                results.append({
+                    'year': report_year,
+                    'title': title,
+                    'pdf_url': full_url,
+                })
+        
+        print(f"  [OK] 找到 {len(results)} 个年报")
+        return results
+        
+    except Exception as e:
+        print(f"  [X] 搜索失败: {e}")
+        return []
 
 
 def get_hkex_search_url(symbol: str, year: int) -> str:
@@ -122,19 +407,19 @@ def download_pdf_from_url(pdf_url: str, save_path: str) -> bool:
                 # 验证文件大小
                 file_size = os.path.getsize(save_path)
                 if file_size > 50000:  # 至少50KB
-                    print(f"  ✓ 下载成功: {save_path}")
+                    print(f"  [OK] 下载成功: {save_path}")
                     print(f"    文件大小: {file_size/1024/1024:.2f} MB")
                     return True
                 else:
-                    print(f"    -> ✗ 文件太小 ({file_size}字节)，可能不是有效PDF")
+                    print(f"    -> [X] 文件太小 ({file_size}字节)，可能不是有效PDF")
                     os.remove(save_path)
             else:
-                print(f"    -> ✗ 响应不是PDF格式")
+                print(f"    -> [X] 响应不是PDF格式")
         else:
-            print(f"    -> ✗ HTTP状态码: {response.status_code}")
+            print(f"    -> [X] HTTP状态码: {response.status_code}")
             
     except Exception as e:
-        print(f"    -> ✗ 下载失败: {str(e)}")
+        print(f"    -> [X] 下载失败: {str(e)}")
     
     return False
 
@@ -157,7 +442,7 @@ def search_with_selenium(symbol: str, year: int) -> List[Dict]:
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.chrome.options import Options
     except ImportError:
-        print("  ⚠ Selenium未安装，请运行: pip install selenium")
+        print("  [!] Selenium未安装，请运行: pip install selenium")
         return []
     
     symbol_clean = symbol.zfill(5)
@@ -210,14 +495,14 @@ def search_with_selenium(symbol: str, year: int) -> List[Dict]:
                             'date': '',
                             'stock_code': symbol_clean,
                         })
-                        print(f"    ✓ {title[:50] if title else href[-50:]}...")
+                        print(f"    [OK] {title[:50] if title else href[-50:]}...")
             except Exception as e:
                 continue
         
         driver.quit()
         
     except Exception as e:
-        print(f"  ✗ Selenium错误: {e}")
+        print(f"  [X] Selenium错误: {e}")
     
     return announcements
 
@@ -239,7 +524,7 @@ def download_hk_annual_report_selenium(symbol: str, year: int, save_dir: str = "
     announcements = search_with_selenium(symbol, year)
     
     if not announcements:
-        print(f"  ⚠ 未找到 {year} 年的年报")
+        print(f"  [!] 未找到 {year} 年的年报")
         return None
     
     # 使用第一个匹配的公告
@@ -310,9 +595,9 @@ def manual_download_mode(save_dir: str = "港股年报PDF"):
         save_path = os.path.join(save_dir, filename)
         
         if download_pdf_from_url(pdf_url, save_path):
-            print(f"\n✓ 文件已保存到: {save_path}\n")
+            print(f"\n[OK] 文件已保存到: {save_path}\n")
         else:
-            print(f"\n✗ 下载失败，请检查链接是否正确\n")
+            print(f"\n[X] 下载失败，请检查链接是否正确\n")
 
 
 def open_hkex_search(symbol: str, year: int):
@@ -344,7 +629,7 @@ def batch_download_hk_reports(symbol: str, start_year: int, end_year: int,
         start_year: 起始年份
         end_year: 结束年份
         save_dir: 保存目录
-        use_selenium: 是否使用Selenium自动搜索
+        use_selenium: 是否使用Selenium自动搜索（已弃用，默认使用HTTP请求）
     
     返回:
         下载结果统计
@@ -354,47 +639,72 @@ def batch_download_hk_reports(symbol: str, start_year: int, end_year: int,
         'failed': []
     }
     
+    symbol_clean = symbol.zfill(5)
+    
     print("=" * 80)
     print("港股年报批量下载")
-    print(f"股票代码: {symbol}")
+    print(f"股票代码: {symbol_clean}")
     print(f"年份范围: {start_year} - {end_year}")
     print(f"保存目录: {save_dir}")
-    print(f"搜索方式: {'Selenium自动搜索' if use_selenium else '手动搜索'}")
     print("=" * 80)
     
-    if not use_selenium:
-        # 打开搜索页面让用户手动查找
-        print("\n⚠ 港交所披露易需要手动搜索，正在打开浏览器...")
-        
+    # 搜索港交所获取PDF链接
+    print("\n[步骤1] 搜索港交所披露易...")
+    all_reports = search_hkex_annual_reports(symbol, start_year, end_year)
+    
+    if not all_reports:
+        print("\n[!] 未找到任何年报，尝试手动搜索模式...")
         for year in range(start_year, end_year + 1):
             print(f"\n[{year}年] 打开搜索页面...")
             open_hkex_search(symbol, year)
-            time.sleep(2)
-        
-        print("\n" + "=" * 80)
-        print("搜索页面已打开")
-        print("请在浏览器中找到年报PDF链接，然后进入手动下载模式")
-        print("=" * 80)
-        
-        manual_download_mode(save_dir)
+            time.sleep(1)
+        print("\n请在浏览器中找到年报PDF链接，然后使用 --manual 模式下载")
         return results
     
-    # 使用Selenium自动搜索
+    # 按年份整理
+    reports_by_year = {}
+    for report in all_reports:
+        year = report.get('year')
+        if year and start_year <= year <= end_year:
+            if year not in reports_by_year:
+                reports_by_year[year] = report
+    
+    print(f"\n[步骤2] 开始下载 {len(reports_by_year)} 个年报...")
+    os.makedirs(save_dir, exist_ok=True)
+    
     for year in range(start_year, end_year + 1):
-        filepath = download_hk_annual_report_selenium(symbol, year, save_dir)
+        print(f"\n[{year}年]")
         
-        if filepath:
+        if year not in reports_by_year:
+            print(f"  [!] 未找到 {year} 年的年报")
+            results['failed'].append({
+                'year': year,
+                'reason': '未找到'
+            })
+            continue
+        
+        report = reports_by_year[year]
+        pdf_url = report['pdf_url']
+        title = report['title']
+        
+        print(f"  标题: {title}")
+        
+        # 生成文件名
+        filename = f"{symbol_clean}_{year}年年度报告.pdf"
+        save_path = os.path.join(save_dir, filename)
+        
+        if download_pdf_from_url(pdf_url, save_path):
             results['success'].append({
                 'year': year,
-                'path': filepath
+                'path': save_path
             })
         else:
             results['failed'].append({
                 'year': year,
-                'reason': '未找到或下载失败'
+                'reason': '下载失败'
             })
         
-        time.sleep(2)  # 避免请求过快
+        time.sleep(1)  # 避免请求过快
     
     # 打印汇总
     print("\n" + "=" * 80)
@@ -405,12 +715,12 @@ def batch_download_hk_reports(symbol: str, start_year: int, end_year: int,
     if results['success']:
         print("\n成功下载的年报:")
         for item in results['success']:
-            print(f"  ✓ {item['year']}年: {item['path']}")
+            print(f"  [OK] {item['year']}年: {item['path']}")
     
     if results['failed']:
         print("\n下载失败的年报:")
         for item in results['failed']:
-            print(f"  ✗ {item['year']}年: {item['reason']}")
+            print(f"  [X] {item['year']}年: {item['reason']}")
     
     print("=" * 80)
     
@@ -424,28 +734,38 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
-  # 手动模式（推荐）：打开搜索页面 + 手动下载
-  python 09_下载港股年报PDF.py --symbol 00700 --start_year 2023 --end_year 2023
-  
-  # 自动模式：使用Selenium自动搜索（需要安装selenium和chromedriver）
-  python 09_下载港股年报PDF.py --symbol 00700 --start_year 2020 --end_year 2024 --selenium
+  # 从本地HTML文件解析下载（推荐）
+  python 09_下载港股年报PDF.py --html "搜索结果.html" --save_dir "小米年报" --symbol 01810
   
   # 直接下载：已知PDF链接时
   python 09_下载港股年报PDF.py --url "https://www1.hkexnews.hk/listedco/.../xxx.pdf"
   
   # 手动下载模式：交互式输入多个链接
   python 09_下载港股年报PDF.py --manual
+
+操作步骤:
+  1. 打开 https://www1.hkexnews.hk/search/titlesearch.xhtml
+  2. 输入股票代码，选择"年度报告"，点击搜索
+  3. Ctrl+S 保存网页为HTML文件
+  4. 运行: python 09_下载港股年报PDF.py --html "保存的文件.html"
         """
     )
-    parser.add_argument('--symbol', type=str, help='股票代码（5位，如 00700）')
-    parser.add_argument('--start_year', type=int, help='起始年份')
-    parser.add_argument('--end_year', type=int, help='结束年份')
+    parser.add_argument('--html', type=str, help='本地HTML文件路径（从港交所保存的搜索结果页面）')
+    parser.add_argument('--symbol', type=str, help='股票代码（用于生成文件名，如 01810）')
+    parser.add_argument('--years', type=str, help='指定下载年份，逗号分隔（如 2022,2023,2024）')
     parser.add_argument('--save_dir', type=str, default='港股年报PDF', help='保存目录')
     parser.add_argument('--url', type=str, help='直接下载指定PDF链接')
-    parser.add_argument('--selenium', action='store_true', help='使用Selenium自动搜索')
     parser.add_argument('--manual', action='store_true', help='进入手动下载模式')
     
     args = parser.parse_args()
+    
+    # 从HTML文件解析下载
+    if args.html:
+        years = None
+        if args.years:
+            years = [int(y.strip()) for y in args.years.split(',')]
+        download_from_html(args.html, args.save_dir, args.symbol, years)
+        return
     
     # 手动下载模式
     if args.manual:
@@ -454,7 +774,6 @@ def main():
     
     # 直接下载指定URL
     if args.url:
-        # 生成文件名
         filename = args.url.split('/')[-1]
         if not filename.endswith('.pdf'):
             filename = f"港股年报.pdf"
@@ -464,37 +783,20 @@ def main():
         download_pdf_from_url(args.url, save_path)
         return
     
-    # 交互模式或批量下载
-    symbol = args.symbol
-    start_year = args.start_year
-    end_year = args.end_year
+    # 交互模式
+    print("=" * 60)
+    print("港股年报PDF下载工具")
+    print("数据来源：香港交易所披露易（HKEXnews）")
+    print("=" * 60)
+    print("\n[!] 由于港交所搜索接口限制，推荐使用HTML解析模式：")
+    print("1. 打开 https://www1.hkexnews.hk/search/titlesearch.xhtml")
+    print("2. 搜索目标公司的年度报告")
+    print("3. Ctrl+S 保存网页为HTML文件")
+    print("4. 运行: python 09_下载港股年报PDF.py --html '文件路径.html'\n")
     
-    if not symbol:
-        print("=" * 60)
-        print("港股年报PDF下载工具")
-        print("数据来源：香港交易所披露易（HKEXnews）")
-        print("=" * 60)
-        print("\n⚠ 注意：港交所披露易数据通过JavaScript加载")
-        print("本工具提供两种下载方式：")
-        print("1. 手动搜索：打开浏览器搜索页面，手动复制链接下载")
-        print("2. 自动搜索：使用Selenium自动化（需要安装）\n")
-        
-        symbol = input("请输入股票代码（5位，如 00700）: ").strip()
-    
-    if not start_year:
-        start_year = int(input("请输入起始年份（如 2020）: ").strip())
-    
-    if not end_year:
-        end_year = int(input("请输入结束年份（如 2024）: ").strip())
-    
-    # 询问是否使用Selenium
-    use_selenium = args.selenium
-    if not use_selenium:
-        choice = input("\n是否使用Selenium自动搜索？(y/N): ").strip().lower()
-        use_selenium = choice == 'y'
-    
-    # 执行下载
-    batch_download_hk_reports(symbol, start_year, end_year, args.save_dir, use_selenium)
+    choice = input("是否进入手动URL输入模式？(y/N): ").strip().lower()
+    if choice == 'y':
+        manual_download_mode(args.save_dir)
 
 
 if __name__ == "__main__":

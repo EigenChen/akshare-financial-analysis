@@ -57,11 +57,8 @@ st.set_page_config(
 st.sidebar.header("🌍 市场与功能")
 market = st.sidebar.radio("选择市场", ["A股", "港股"], horizontal=True)
 
-# 功能列表（A股有年报PDF下载，港股暂不支持）
-if market == "A股":
-    feature_options = ["📊 财务分析", "📄 报表下载", "👥 员工数量提取", "📥 年报PDF下载"]
-else:
-    feature_options = ["📊 财务分析", "📄 报表下载", "👥 员工数量提取"]
+# 功能列表（A股和港股都支持年报PDF下载）
+feature_options = ["📊 财务分析", "📄 报表下载", "👥 员工数量提取", "📥 年报PDF下载"]
 
 feature = st.sidebar.radio("选择功能", feature_options)
 
@@ -708,10 +705,18 @@ def run_employee_extraction():
         st.code(traceback.format_exc())
 
 # -----------------------------
-# 功能 4：年报PDF下载（仅A股）
+# 功能 4：年报PDF下载（A股 + 港股）
 # -----------------------------
 def run_pdf_download():
-    st.header("📥 年报PDF下载")
+    if market == "A股":
+        run_pdf_download_a()
+    else:
+        run_pdf_download_hk()
+
+
+def run_pdf_download_a():
+    """A股年报PDF下载"""
+    st.header("📥 年报PDF下载（A股）")
     st.info("从巨潮资讯网下载A股上市公司年度报告PDF")
     
     # 加载下载模块
@@ -837,21 +842,21 @@ def run_pdf_download():
                     'size': f"{file_size:.2f} MB"
                 })
                 with log_container:
-                    st.success(f"✓ {year}年年报下载成功：{os.path.basename(filepath)} ({file_size:.2f} MB)")
+                    st.success(f"[OK] {year}年年报下载成功：{os.path.basename(filepath)} ({file_size:.2f} MB)")
             else:
                 results['failed'].append({
                     'year': year,
                     'reason': '未找到年报或下载失败'
                 })
                 with log_container:
-                    st.warning(f"⚠ {year}年年报下载失败")
+                    st.warning(f"[!] {year}年年报下载失败")
         except Exception as e:
             results['failed'].append({
                 'year': year,
                 'reason': str(e)
             })
             with log_container:
-                st.error(f"✗ {year}年年报下载出错：{e}")
+                st.error(f"[X] {year}年年报下载出错：{e}")
         
         # 更新进度
         progress_bar.progress((idx + 1) / total_years)
@@ -876,7 +881,286 @@ def run_pdf_download():
     
     # 打开保存目录按钮
     if results['success']:
-        st.success(f"✅ 下载完成！文件保存在：`{actual_save_dir}`")
+        st.success(f"下载完成！文件保存在：`{actual_save_dir}`")
+
+
+def run_pdf_download_hk():
+    """港股年报PDF下载（从HTML文件解析）"""
+    st.header("📥 年报PDF下载（港股）")
+    st.info("从港交所披露易下载港股年度报告PDF（需先保存搜索结果HTML）")
+    
+    # 加载港股下载模块
+    try:
+        hk_pdf_dl = load_module("hk_pdf_downloader", "09_下载港股年报PDF.py")
+    except Exception as e:
+        st.error(f"加载港股下载模块失败：{e}")
+        return
+    
+    # 文件选择功能
+    def select_html_file():
+        """打开文件选择对话框选择HTML文件"""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            file_path = filedialog.askopenfilename(
+                title="选择港交所搜索结果HTML文件",
+                filetypes=[("HTML文件", "*.html;*.htm"), ("所有文件", "*.*")]
+            )
+            root.destroy()
+            return file_path if file_path else None
+        except Exception as e:
+            st.warning(f"文件选择器不可用: {e}，请手动输入路径")
+            return None
+    
+    def select_save_folder():
+        """打开文件夹选择对话框"""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            folder_path = filedialog.askdirectory(title="选择PDF保存目录")
+            root.destroy()
+            return folder_path if folder_path else None
+        except Exception as e:
+            st.warning(f"文件夹选择器不可用: {e}，请手动输入路径")
+            return None
+    
+    # 初始化路径
+    if 'hk_html_path' not in st.session_state:
+        st.session_state['hk_html_path'] = ""
+    if 'hk_pdf_save_dir' not in st.session_state:
+        st.session_state['hk_pdf_save_dir'] = "港股年报PDF"
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📁 下载设置")
+    
+    # HTML文件选择
+    st.sidebar.markdown("**步骤1: 选择HTML文件**")
+    col1, col2 = st.sidebar.columns([3, 1])
+    with col1:
+        html_path = st.text_input(
+            "HTML文件路径",
+            value=st.session_state.get('hk_html_path', ""),
+            placeholder="从港交所保存的搜索结果HTML"
+        )
+        # 如果用户手动输入了路径，更新session_state
+        if html_path and html_path != st.session_state.get('hk_html_path'):
+            st.session_state['hk_html_path'] = html_path
+    with col2:
+        if st.button("📄", use_container_width=True, help="选择HTML文件", key="select_html_btn"):
+            selected_file = select_html_file()
+            if selected_file:
+                st.session_state['hk_html_path'] = selected_file
+                st.rerun()
+    
+    # PDF保存目录选择
+    st.sidebar.markdown("**步骤2: 选择保存目录**")
+    col3, col4 = st.sidebar.columns([3, 1])
+    with col3:
+        save_dir = st.text_input(
+            "保存目录",
+            value=st.session_state.get('hk_pdf_save_dir', "港股年报PDF")
+        )
+        # 如果用户手动输入了路径，更新session_state
+        if save_dir and save_dir != st.session_state.get('hk_pdf_save_dir'):
+            st.session_state['hk_pdf_save_dir'] = save_dir
+    with col4:
+        if st.button("📁", use_container_width=True, help="选择保存文件夹", key="select_hk_save_folder_btn"):
+            selected_folder = select_save_folder()
+            if selected_folder:
+                st.session_state['hk_pdf_save_dir'] = selected_folder
+                st.rerun()
+    
+    # 下载按钮
+    download_btn = st.sidebar.button("🚀 开始下载", type="primary", use_container_width=True, key="download_hk_pdf_btn")
+    
+    # 显示当前设置
+    st.markdown("### 📋 下载设置")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.write(f"**股票代码：** {symbol}")
+        st.write(f"**年份范围：** {start_year} - {end_year}")
+    with col_info2:
+        actual_html_path = st.session_state.get('hk_html_path', '')
+        actual_save_dir = st.session_state.get('hk_pdf_save_dir', save_dir)
+        if actual_html_path:
+            st.write(f"**HTML文件：** `{os.path.basename(actual_html_path)}`")
+        else:
+            st.write("**HTML文件：** 未选择")
+        st.write(f"**保存目录：** `{actual_save_dir}`")
+    
+    # 如果没有点击下载按钮，显示使用说明
+    if not download_btn:
+        st.markdown("---")
+        st.markdown("""
+        ### 📖 使用说明
+        
+        **港股年报下载需要先从港交所网站保存搜索结果页面：**
+        
+        1. 打开港交所披露易搜索页面：[https://www1.hkexnews.hk/search/titlesearch.xhtml](https://www1.hkexnews.hk/search/titlesearch.xhtml)
+        2. 输入股票代码（如 01810），选择 **"年度报告"** 文件类别
+        3. 点击搜索，等待结果显示
+        4. **Ctrl+S** 保存网页为HTML文件（完整网页格式）
+        5. 回到本工具，选择刚保存的HTML文件
+        6. 设置PDF保存目录
+        7. 点击 **开始下载**
+        
+        ### ⚠️ 注意事项
+        - 保存HTML时请选择 **"网页，完整"** 或 **"网页，仅HTML"** 格式
+        - 年份范围会用于筛选要下载的年报
+        - 下载速度取决于网络状况
+        """)
+        
+        # 显示解析预览（如果已选择HTML文件）
+        if actual_html_path and os.path.exists(actual_html_path):
+            st.markdown("---")
+            st.markdown("### 🔍 HTML文件预览")
+            try:
+                reports = hk_pdf_dl.parse_html_for_annual_reports(actual_html_path)
+                if reports:
+                    # 筛选年份范围
+                    filtered_reports = [r for r in reports if start_year <= r['year'] <= end_year]
+                    st.success(f"解析成功！找到 {len(reports)} 个年报，符合年份范围的有 {len(filtered_reports)} 个")
+                    
+                    # 显示列表
+                    preview_data = []
+                    for r in reports:
+                        in_range = "✓" if start_year <= r['year'] <= end_year else ""
+                        preview_data.append({
+                            "选中": in_range,
+                            "年份": r['year'],
+                            "标题": r['title'][:40],
+                        })
+                    st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
+                else:
+                    st.warning("未在HTML文件中找到年报链接，请检查文件是否正确")
+            except Exception as e:
+                st.error(f"解析HTML失败：{e}")
+        return
+    
+    # 执行下载
+    actual_html_path = st.session_state.get('hk_html_path', '')
+    actual_save_dir = st.session_state.get('hk_pdf_save_dir', save_dir)
+    
+    # 检查HTML文件
+    if not actual_html_path:
+        st.error("请先选择HTML文件！")
+        return
+    if not os.path.exists(actual_html_path):
+        st.error(f"HTML文件不存在：{actual_html_path}")
+        return
+    
+    # 创建保存目录
+    os.makedirs(actual_save_dir, exist_ok=True)
+    
+    st.markdown("---")
+    st.markdown("### 📥 下载进度")
+    
+    # 解析HTML获取年报列表
+    status_text = st.empty()
+    status_text.text("正在解析HTML文件...")
+    
+    try:
+        reports = hk_pdf_dl.parse_html_for_annual_reports(actual_html_path)
+        if not reports:
+            st.error("未在HTML文件中找到年报链接")
+            return
+        
+        # 筛选年份范围
+        years_to_download = list(range(int(start_year), int(end_year) + 1))
+        filtered_reports = [r for r in reports if r['year'] in years_to_download]
+        
+        if not filtered_reports:
+            st.warning(f"没有找到 {start_year}-{end_year} 年份范围内的年报")
+            st.info(f"HTML文件中包含的年份：{sorted([r['year'] for r in reports])}")
+            return
+        
+        st.info(f"准备下载 {len(filtered_reports)} 个年报")
+        
+        # 下载结果统计
+        results = {'success': [], 'failed': []}
+        
+        # 进度条
+        progress_bar = st.progress(0)
+        log_container = st.container()
+        
+        total = len(filtered_reports)
+        for idx, report in enumerate(filtered_reports):
+            year = report['year']
+            pdf_url = report['pdf_url']
+            title = report['title']
+            
+            status_text.text(f"正在下载 {year} 年年报... ({idx + 1}/{total})")
+            
+            with log_container:
+                st.write(f"**[{year}年]** {title[:30]}...")
+            
+            try:
+                # 生成文件名
+                symbol_clean = symbol.zfill(5)
+                filename = f"{symbol_clean}_{year}年年度报告.pdf"
+                save_path = os.path.join(actual_save_dir, filename)
+                
+                # 下载PDF
+                success = hk_pdf_dl.download_pdf_from_url(pdf_url, save_path)
+                
+                if success and os.path.exists(save_path):
+                    file_size = os.path.getsize(save_path) / 1024 / 1024
+                    results['success'].append({
+                        'year': year,
+                        'path': save_path,
+                        'size': f"{file_size:.2f} MB"
+                    })
+                    with log_container:
+                        st.success(f"[OK] {year}年年报下载成功 ({file_size:.2f} MB)")
+                else:
+                    results['failed'].append({
+                        'year': year,
+                        'reason': '下载失败'
+                    })
+                    with log_container:
+                        st.warning(f"[!] {year}年年报下载失败")
+            except Exception as e:
+                results['failed'].append({
+                    'year': year,
+                    'reason': str(e)
+                })
+                with log_container:
+                    st.error(f"[X] {year}年年报下载出错：{e}")
+            
+            # 更新进度
+            progress_bar.progress((idx + 1) / total)
+        
+        # 显示下载结果汇总
+        st.markdown("---")
+        st.markdown("### 📊 下载结果")
+        
+        col_success, col_failed = st.columns(2)
+        
+        with col_success:
+            st.metric("下载成功", f"{len(results['success'])} 个")
+            if results['success']:
+                for item in results['success']:
+                    st.write(f"- {item['year']}年：{item['size']}")
+        
+        with col_failed:
+            st.metric("下载失败", f"{len(results['failed'])} 个")
+            if results['failed']:
+                for item in results['failed']:
+                    st.write(f"- {item['year']}年：{item['reason']}")
+        
+        if results['success']:
+            st.success(f"下载完成！文件保存在：`{actual_save_dir}`")
+    
+    except Exception as e:
+        st.error(f"下载失败：{e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 # -----------------------------
