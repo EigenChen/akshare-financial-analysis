@@ -1483,7 +1483,8 @@ def calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path
         '人均收入（万元）',
         '人均归母净利润（万元）',
         '人均扣非净利润（万元）',
-        '人均薪酬（万元）'
+        '人均薪酬（万元）',
+        '人均固定资产（万元）'
     ]
     
     # 初始化所有年份的数据列表（默认值为 "-" 表示数据缺失）
@@ -1572,6 +1573,32 @@ def calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path
             metrics[str(year)][4] = per_capita_salary
         else:
             metrics[str(year)][4] = "-"
+        
+        # 6. 人均固定资产（万元）
+        # 计算固定资产（亿元）= 固定资产 + 在建工程 + 工程物资 - 固定资产清理
+        fixed_asset = get_value_from_row(balance_row, 'FIXED_ASSET', 0)
+        cip = get_value_from_row(balance_row, 'CIP', 0)
+        project_material = get_value_from_row(balance_row, 'PROJECT_MATERIAL', 0)
+        fixed_asset_disposal = get_value_from_row(balance_row, 'FIXED_ASSET_DISPOSAL', 0)
+        
+        # 处理缺失值
+        if fixed_asset == "-":
+            fixed_asset = 0
+        if cip == "-":
+            cip = 0
+        if project_material == "-":
+            project_material = 0
+        if fixed_asset_disposal == "-":
+            fixed_asset_disposal = 0
+        
+        total_fixed_asset = round(fixed_asset + cip + project_material - fixed_asset_disposal, 2)
+        
+        # 人均固定资产 = 固定资产（亿元）/ 人数 * 10000（转换为万元）
+        if employee_count is not None and employee_count > 0 and total_fixed_asset > 0:
+            per_capita_fixed_asset = round((total_fixed_asset / employee_count * 10000), 2)  # 转换为万元
+            metrics[str(year)][5] = per_capita_fixed_asset
+        else:
+            metrics[str(year)][5] = "-"
         
         print(f"  ✓ {year} 年数据计算完成")
     
