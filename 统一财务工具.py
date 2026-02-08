@@ -38,7 +38,7 @@ fa_a = load_module("financial_analysis_a", "07_财务分析.py")
 fa_hk = load_module("financial_analysis_hk", "hk_financial_analysis_full.py")
 hk_adapter = load_module("hk_adapter", "hk_financial_adapter.py")
 dl_tool = load_module("report_downloader", "财务报表下载工具.py")
-emp_a = load_module("emp_a", "测试_从年报提取员工数量.py")
+emp_a = load_module("emp_a", "智能_从年报提取员工数量.py")
 emp_hk = load_module("emp_hk", "港股_从年报提取员工数量.py")
 
 # -----------------------------
@@ -678,7 +678,7 @@ def run_employee_extraction():
         results = {}
         if market == "A股":
             # 批量提取（传递股票代码）
-            res = emp_a.batch_extract_employee_count_from_pdfs(actual_pdf_dir, output_csv=None, stock_code=symbol)
+            res = emp_a.batch_extract_employee_count_smart(actual_pdf_dir, stock_code=symbol, use_smart=True)
             results = {k: v for k, v in res.items()}
         else:
             # 港股按年份提取

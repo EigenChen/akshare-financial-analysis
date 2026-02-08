@@ -392,7 +392,16 @@ with st.sidebar:
         st.stop()
     
     st.markdown("---")
-    
+
+    # 下载财报选项（默认勾选）
+    download_report = st.checkbox(
+        "下载年报PDF",
+        value=True,
+        help="勾选则下载年报PDF；不勾选则跳过下载（步骤4仍会从目录内已有 PDF 提取员工数量）"
+    )
+
+    st.markdown("---")
+
     # 4. 开始分析按钮
     analyze_btn = st.button(
         "🚀 开始财务分析",
@@ -455,106 +464,207 @@ if analyze_btn:
         with log_container:
             st.success(f"✅ 工作目录已创建: `{company_dir}`")
         
-        # 步骤3: 下载年报PDF
-        with log_container:
-            st.markdown("### 步骤3: 下载年报PDF")
-        
-        # 加载PDF下载模块
-        try:
-            pdf_dl = load_module("pdf_downloader", "08_下载年报PDF.py")
-        except Exception as e:
-            st.error(f"❌ 加载PDF下载模块失败: {e}")
-            st.stop()
-        
-        years = list(range(start_year, end_year + 1))
-        download_results = {'success': [], 'failed': []}
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for idx, year in enumerate(years):
-            status_text.text(f"正在下载 {year} 年年报... ({idx + 1}/{len(years)})")
-            
+        # 步骤3: 下载年报PDF（仅当勾选时执行）
+        if download_report:
+            with log_container:
+                st.markdown("### 步骤3: 下载年报PDF")
+
+            # 2020年特殊提示
+            if start_year <= 2020 <= end_year:
+                st.warning("⚠️ 注意：2020年年报受COVID-19疫情影响，发布时间普遍延期，程序下载成功率较低（约30-40%）")
+                with st.expander("📖 查看2020年年报手动下载指导（推荐）"):
+                    st.markdown(f"""
+                    **🎯 推荐方案：手动下载（成功率95%+）**
+
+                    **📍 推荐网站：巨潮资讯网**
+                    - 🌐 网址：http://www.cninfo.com.cn
+
+                    **📋 操作步骤：**
+                    1. 访问巨潮资讯网首页
+                    2. 在搜索框输入股票代码：`{symbol}`
+                    3. 点击搜索结果中的公司名称
+                    4. 选择"定期报告"选项卡
+                    5. 筛选年份为"2020年"，类型为"年度报告"
+                    6. 点击PDF图标下载年报文件
+
+                    **⏰ 重要提示：**
+                    - 2020年年报可能在2021年4月-2022年期间发布
+                    - 如果2021年没找到，请在2022年中查找
+                    - 建议保存文件名：`{symbol}_2020年年度报告.pdf`
+
+                    **🔄 备用网站：**
+                    - 深交所官网：http://www.szse.cn（适用于{symbol}）
+                    - 东方财富：http://data.eastmoney.com/notices/
+                    """)
+                st.info("💡 程序仍会尝试自动下载，但如遇失败，请参考上述手动下载指导")
+
+            # 加载PDF下载模块
             try:
-                filepath = pdf_dl.download_annual_report(symbol, year, company_dir)
-                
-                if filepath and os.path.exists(filepath):
-                    file_size = os.path.getsize(filepath) / 1024 / 1024
-                    download_results['success'].append({
-                        'year': year,
-                        'path': filepath,
-                        'size': f"{file_size:.2f} MB"
-                    })
-                    with log_container:
-                        st.write(f"  ✅ {year}年: {os.path.basename(filepath)} ({file_size:.2f} MB)")
-                else:
-                    download_results['failed'].append({'year': year, 'reason': '未找到年报或下载失败'})
-                    with log_container:
-                        st.write(f"  ⚠️ {year}年: 下载失败")
+                pdf_dl = load_module("pdf_downloader", "08_下载年报PDF.py")
             except Exception as e:
-                download_results['failed'].append({'year': year, 'reason': str(e)})
-                with log_container:
-                    st.write(f"  ❌ {year}年: {e}")
-            
-            progress_bar.progress((idx + 1) / len(years))
-        
-        # 清除状态文本
-        status_text.empty()
-        progress_bar.empty()
-        
-        with log_container:
-            st.info(f"📊 下载完成: 成功 {len(download_results['success'])} 个，失败 {len(download_results['failed'])} 个")
-        
-        # 步骤4: 提取员工数量
+                st.error(f"❌ 加载PDF下载模块失败: {e}")
+                st.stop()
+
+            years = list(range(start_year, end_year + 1))
+            download_results = {'success': [], 'failed': []}
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for idx, year in enumerate(years):
+                status_text.text(f"正在下载 {year} 年年报... ({idx + 1}/{len(years)})")
+                try:
+                    filepath = pdf_dl.download_annual_report(symbol, year, company_dir)
+                    if filepath and os.path.exists(filepath):
+                        file_size = os.path.getsize(filepath) / 1024 / 1024
+                        download_results['success'].append({
+                            'year': year,
+                            'path': filepath,
+                            'size': f"{file_size:.2f} MB"
+                        })
+                        with log_container:
+                            st.write(f"  ✅ {year}年: {os.path.basename(filepath)} ({file_size:.2f} MB)")
+                    else:
+                        download_results['failed'].append({'year': year, 'reason': '未找到年报或下载失败'})
+                        with log_container:
+                            st.write(f"  ⚠️ {year}年: 下载失败")
+                except Exception as e:
+                    download_results['failed'].append({'year': year, 'reason': str(e)})
+                    with log_container:
+                        st.write(f"  ❌ {year}年: {e}")
+                progress_bar.progress((idx + 1) / len(years))
+
+            # 清除状态文本
+            status_text.empty()
+            progress_bar.empty()
+
+            with log_container:
+                st.info(f"📊 下载完成: 成功 {len(download_results['success'])} 个，失败 {len(download_results['failed'])} 个")
+        else:
+            with log_container:
+                st.info("⏭️ 已跳过步骤3：下载年报PDF（未勾选「下载年报PDF」）。步骤4将尝试从目录内已有PDF提取员工数量。")
+
+        # 步骤4: 提取员工数量（始终执行，使用智能算法）
         with log_container:
             st.markdown("### 步骤4: 提取员工数量")
-        
-        # 加载员工数量提取模块
+
         try:
-            emp_module = load_module("employee_extractor", "测试_从年报提取员工数量.py")
+            emp_module = load_module("employee_extractor", "智能_从年报提取员工数量.py")
         except Exception as e:
-            st.error(f"❌ 加载员工数量提取模块失败: {e}")
+            st.error(f"❌ 加载智能员工数量提取模块失败: {e}")
             st.stop()
-        
-        # 提取员工数量
+
         with log_container:
             st.write("正在从PDF中提取员工数量...")
-        
+            st.write(f"PDF目录: {company_dir}")
+
         try:
-            # 调用process_directory获取原始结果（会自动保存CSV，但我们后面会用验证后的数据覆盖）
-            results = emp_module.process_directory(company_dir, verbose=False, stock_code=symbol)
-            
-            # 处理结果，添加数量级检查
-            employee_counts = process_employee_counts(results)
-            
-            # 保存验证后的数据到CSV（覆盖原来的）
+            with log_container:
+                st.write("正在使用智能算法提取员工数量...")
+
+            batch_results = emp_module.batch_extract_employee_count_smart(
+                company_dir,
+                stock_code=symbol,
+                use_smart=True
+            )
+
+            with log_container:
+                st.write(f"智能算法提取完成，处理了 {len(batch_results)} 个文件")
+
+            employee_counts = {}
+            import re
+            for filename, count in batch_results.items():
+                year = None
+                try:
+                    year_patterns = [
+                        r'(\d{4})年',
+                        r'_(\d{4})年',
+                        r'(\d{4})年度',
+                        r'(\d{4})(?=年度报告)',
+                        r'(?:20\d{2})',
+                    ]
+                    for pattern in year_patterns:
+                        year_match = re.search(pattern, filename)
+                        if year_match:
+                            year_str = year_match.group(1) if year_match.groups() else year_match.group(0)
+                            year_num = int(year_str)
+                            if 2000 <= year_num <= 2030:
+                                year = year_num
+                                break
+                    if year is None:
+                        all_four_digits = re.findall(r'\b(\d{4})\b', filename)
+                        for digit in all_four_digits:
+                            digit_int = int(digit)
+                            if 2000 <= digit_int <= 2030:
+                                year = digit_int
+                                break
+                except Exception as e:
+                    pass
+
+                if year is not None:
+                    employee_counts[year] = count
+
+                with log_container:
+                    if count:
+                        st.write(f"  {year}年 ({filename}): {count:,}人")
+                    else:
+                        st.write(f"  {year}年 ({filename}): 提取失败")
+
             csv_path = os.path.join(company_dir, f"{symbol}_员工数量.csv")
+            with log_container:
+                st.write(f"正在保存CSV文件到: {os.path.basename(csv_path)}")
+
+            import csv
             with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-                import csv
                 writer = csv.writer(f)
                 writer.writerow(['年份', '员工数量'])
+                saved_rows = 0
                 for year in sorted(employee_counts.keys()):
                     count = employee_counts[year]
-                    # 如果数量为None，保存为"-"
-                    writer.writerow([year, count if count is not None else '-'])
-            
+                    csv_value = count if count is not None else '-'
+                    writer.writerow([year, csv_value])
+                    saved_rows += 1
+                    with log_container:
+                        if count is not None:
+                            st.write(f"  保存: {year}年 -> {count:,}人")
+                        else:
+                            st.write(f"  保存: {year}年 -> 无数据")
+
+            if os.path.exists(csv_path):
+                file_size = os.path.getsize(csv_path)
+                with log_container:
+                    st.success(f"✅ CSV文件保存成功!")
+                    st.write(f"   文件路径: `{csv_path}`")
+                    st.write(f"   文件大小: {file_size} bytes")
+                    st.write(f"   数据行数: {saved_rows}")
+                    try:
+                        df = pd.read_csv(csv_path, encoding='utf-8-sig')
+                        st.write(f"   验证读取: {len(df)} 行数据")
+                        st.write("   CSV内容预览:")
+                        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+                            lines = f.readlines()
+                            for i, line in enumerate(lines[:6]):
+                                st.code(f"第{i+1}行: {line.strip()}")
+                    except Exception as e:
+                        st.warning(f"   CSV读取验证失败: {e}")
+            else:
+                with log_container:
+                    st.error("❌ CSV文件保存失败 - 文件不存在")
+
             with log_container:
-                st.success(f"✅ 员工数量已保存: `{csv_path}`")
-                
-                # 显示提取结果
-                st.write("**提取结果:**")
+                st.write("**员工数量提取结果汇总:**")
                 result_df = pd.DataFrame([
                     {'年份': year, '员工数量': count if count is not None else '-'}
                     for year, count in sorted(employee_counts.items())
                 ])
-                st.dataframe(result_df, use_container_width=True)
-        
+                display_df = result_df.astype(str)
+                st.dataframe(display_df, use_container_width=True)
+
         except Exception as e:
             st.error(f"❌ 提取员工数量失败: {e}")
             import traceback
             st.code(traceback.format_exc())
-            # 继续执行，即使员工数量提取失败
-        
+
         # 步骤5: 生成财务分析Excel
         with log_container:
             st.markdown("### 步骤5: 生成财务分析Excel")
@@ -567,7 +677,7 @@ if analyze_btn:
             st.stop()
         
         # 准备员工数量CSV路径
-        employee_csv_path = csv_path if 'csv_path' in locals() and os.path.exists(csv_path) else None
+        employee_csv_path = (csv_path if csv_path and os.path.exists(csv_path) else None)
         
         with log_container:
             st.write("正在生成财务分析报告...")
