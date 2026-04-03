@@ -349,15 +349,19 @@ with st.sidebar:
             # 使用expander实现折叠
             selected_in_sheet = len(st.session_state['selected_subjects'][sheet_name])
             with st.expander(f"📄 {sheet_name} ({len(subjects)} 个科目, 已选 {selected_in_sheet})", expanded=False):
-                # 全选/取消全选按钮
+                # 全选/取消全选按钮（需同步更新每个 checkbox 的 session_state，否则带 key 的控件不会刷新）
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("全选", key=f"select_all_{sheet_name}", use_container_width=True):
                         st.session_state['selected_subjects'][sheet_name] = subjects.copy()
+                        for sub in subjects:
+                            st.session_state[f"subject_{sheet_name}_{sub}"] = True
                         st.rerun()
                 with col2:
                     if st.button("取消全选", key=f"deselect_all_{sheet_name}", use_container_width=True):
                         st.session_state['selected_subjects'][sheet_name] = []
+                        for sub in subjects:
+                            st.session_state[f"subject_{sheet_name}_{sub}"] = False
                         st.rerun()
                 
                 # 科目复选框
