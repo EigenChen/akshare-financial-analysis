@@ -16,6 +16,7 @@ import os
 import io
 import sys
 import importlib.util
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -23,23 +24,28 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 # -----------------------------
 # 工具：动态导入模块
 # -----------------------------
 def load_module(name: str, path: str):
-    spec = importlib.util.spec_from_file_location(name, path)
+    module_path = ROOT / path
+    spec = importlib.util.spec_from_file_location(name, module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
 # 预加载核心模块
-fa_a = load_module("financial_analysis_a", "07_财务分析.py")
-fa_hk = load_module("financial_analysis_hk", "hk_financial_analysis_full.py")
-hk_adapter = load_module("hk_adapter", "hk_financial_adapter.py")
-dl_tool = load_module("report_downloader", "财务报表下载工具.py")
-emp_a = load_module("emp_a", "智能_从年报提取员工数量.py")
-emp_hk = load_module("emp_hk", "港股_从年报提取员工数量.py")
+fa_a = load_module("financial_analysis_a", "core/a_share/financial_analysis.py")
+fa_hk = load_module("financial_analysis_hk", "core/hk/financial_analysis_full.py")
+hk_adapter = load_module("hk_adapter", "core/hk/financial_adapter.py")
+dl_tool = load_module("report_downloader", "core/tools/report_downloader.py")
+emp_a = load_module("emp_a", "core/a_share/employee_extractor.py")
+emp_hk = load_module("emp_hk", "core/hk/employee_extractor.py")
 
 # -----------------------------
 # 页面配置
@@ -721,7 +727,7 @@ def run_pdf_download_a():
     
     # 加载下载模块
     try:
-        pdf_dl = load_module("pdf_downloader", "08_下载年报PDF.py")
+        pdf_dl = load_module("pdf_downloader", "core/a_share/annual_report_downloader.py")
     except Exception as e:
         st.error(f"加载下载模块失败：{e}")
         return
@@ -891,7 +897,7 @@ def run_pdf_download_hk():
     
     # 加载港股下载模块
     try:
-        hk_pdf_dl = load_module("hk_pdf_downloader", "09_下载港股年报PDF.py")
+        hk_pdf_dl = load_module("hk_pdf_downloader", "core/hk/annual_report_downloader.py")
     except Exception as e:
         st.error(f"加载港股下载模块失败：{e}")
         return

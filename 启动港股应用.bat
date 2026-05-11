@@ -6,6 +6,5 @@ echo ========================================
 echo.
 echo 正在启动应用...
 echo.
-streamlit run streamlit_app_hk.py
-pause
+call "%~dp0scripts\windows\tools\启动港股应用.bat"
 

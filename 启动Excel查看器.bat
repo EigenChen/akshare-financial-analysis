@@ -7,5 +7,4 @@ echo ========================================
 echo.
 echo 正在启动 Streamlit 应用...
 echo.
-streamlit run "财务分析Excel查看器.py"
-pause
+call "%~dp0scripts\windows\tools\启动Excel查看器.bat"

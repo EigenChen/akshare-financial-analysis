@@ -1,9 +1,6 @@
 #!/bin/bash
-echo "========================================"
-echo "  财务分析工具 - Streamlit Web 界面"
-echo "========================================"
-echo ""
-echo "正在启动应用..."
-echo ""
-streamlit run streamlit_app.py
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "$SCRIPT_DIR/scripts/linux/启动应用.sh"
 

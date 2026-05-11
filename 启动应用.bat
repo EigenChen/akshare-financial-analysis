@@ -6,6 +6,5 @@ echo ========================================
 echo.
 echo 正在启动应用...
 echo.
-streamlit run streamlit_app.py
-pause
+call "%~dp0scripts\windows\tools\启动应用.bat"
 

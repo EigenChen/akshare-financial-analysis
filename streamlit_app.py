@@ -19,9 +19,14 @@ import io
 import re
 import importlib.util
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # 动态导入财务分析模块（因为文件名以数字开头）
-spec = importlib.util.spec_from_file_location("financial_analysis", "07_财务分析.py")
+spec = importlib.util.spec_from_file_location("financial_analysis", ROOT / "core/a_share/financial_analysis.py")
 financial_analysis = importlib.util.module_from_spec(spec)
 sys.modules["financial_analysis"] = financial_analysis
 spec.loader.exec_module(financial_analysis)

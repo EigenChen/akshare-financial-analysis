@@ -21,21 +21,26 @@ import io
 import re
 import importlib.util
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # 动态导入港股财务分析模块
-spec = importlib.util.spec_from_file_location("hk_financial_analysis", "hk_financial_analysis_full.py")
+spec = importlib.util.spec_from_file_location("hk_financial_analysis", ROOT / "core/hk/financial_analysis_full.py")
 hk_financial_analysis = importlib.util.module_from_spec(spec)
 sys.modules["hk_financial_analysis"] = hk_financial_analysis
 spec.loader.exec_module(hk_financial_analysis)
 
 # 导入港股适配层
-from hk_financial_adapter import (
+from core.hk.financial_adapter import (
     is_hk_stock, get_hk_symbol_name, get_hk_annual_data,
     extract_year_data_hk, get_value_from_row_hk
 )
 
 # 导入A股计算函数（字段名已统一，可以直接复用）
-spec_a = importlib.util.spec_from_file_location("financial_analysis", "07_财务分析.py")
+spec_a = importlib.util.spec_from_file_location("financial_analysis", ROOT / "core/a_share/financial_analysis.py")
 financial_analysis = importlib.util.module_from_spec(spec_a)
 sys.modules["financial_analysis"] = financial_analysis
 spec_a.loader.exec_module(financial_analysis)

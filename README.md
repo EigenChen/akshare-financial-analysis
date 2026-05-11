@@ -4,6 +4,26 @@
 
 基于 AKShare 的上市公司财务分析工具，支持 A 股和港股财务数据获取、分析和可视化。提供完整的财务分析报告生成、Web 交互界面、年报 PDF 下载等功能。
 
+## 🧭 目录与入口
+
+- [docs/目录结构说明.md](docs/%E7%9B%AE%E5%BD%95%E7%BB%93%E6%9E%84%E8%AF%B4%E6%98%8E.md)
+- [docs/文档索引.md](docs/%E6%96%87%E6%A1%A3%E7%B4%A2%E5%BC%95.md)
+
+推荐入口：
+
+- A 股主入口：[启动A股财务分析自动化.bat](启动A股财务分析自动化.bat)
+- 港股主入口：[启动港股应用.bat](启动港股应用.bat)
+- 统一导航入口：[启动统一财务工具.bat](启动统一财务工具.bat)
+
+当前已整理为：
+
+- apps/：业务入口
+- core/：核心能力
+- scripts/windows/：Windows 启动器
+- tutorials/：学习脚本
+- research/：预研与调试
+- tests/：测试脚本
+
 ## ✨ 主要功能
 
 ### 📊 财务分析
@@ -62,6 +82,8 @@ python 01_基础学习_验证安装.py
 streamlit run 统一财务工具.py
 ```
 
+> 说明：如果你日常主要做 A 股分析，优先使用 [启动A股财务分析自动化.bat](启动A股财务分析自动化.bat)。统一工具更适合跨市场入口和导航。
+
 **统一财务工具**集成了所有功能：
 - 📊 财务分析（A 股/港股）
 - 📄 报表下载（支持预览）
@@ -93,7 +115,7 @@ streamlit run streamlit_app_hk.py
 启动财务报表工具.bat
 
 # Linux/Mac
-streamlit run 财务报表下载工具.py
+streamlit run apps/tools/report_downloader_app.py
 ```
 
 **财务分析 Excel 查看器**（新增）⭐
@@ -102,7 +124,7 @@ streamlit run 财务报表下载工具.py
 启动Excel查看器.bat
 
 # Linux/Mac
-streamlit run 财务分析Excel查看器.py
+streamlit run apps/tools/excel_viewer_app.py
 ```
 
 **功能说明**：
@@ -117,12 +139,12 @@ streamlit run 财务分析Excel查看器.py
 
 #### A 股财务分析
 ```python
-python 07_财务分析.py
+python A股财务分析自动化.py
 ```
 
 #### 港股财务分析
 ```python
-python hk_financial_analysis_full.py
+python core/hk/financial_analysis_full.py
 ```
 
 ## 📚 功能模块
@@ -139,22 +161,22 @@ python hk_financial_analysis_full.py
 ### 核心功能
 
 #### 财务分析
-- **07_财务分析.py** - A 股完整财务分析（9 个 Sheet）
-- **hk_financial_analysis_full.py** - 港股完整财务分析（9 个 Sheet）
-- **hk_financial_adapter.py** - 港股数据适配层
+- **core/a_share/financial_analysis.py** - A 股完整财务分析（9 个 Sheet）
+- **core/hk/financial_analysis_full.py** - 港股完整财务分析（9 个 Sheet）
+- **core/hk/financial_adapter.py** - 港股数据适配层
 
 #### Web 界面
 - **统一财务工具.py** - 统一财务工具（集成所有功能，推荐使用）⭐
 - **streamlit_app.py** - A 股财务分析 Web 界面
 - **streamlit_app_hk.py** - 港股财务分析 Web 界面
-- **财务分析Excel查看器.py** - 财务分析 Excel 文件查看器（上传 Excel 文件查看图表）⭐
+- **apps/tools/excel_viewer_app.py** - 财务分析 Excel 文件查看器（上传 Excel 文件查看图表）⭐
 
 #### 年报和报表处理
-- **08_下载年报PDF.py** - 年报 PDF 下载工具
-- **财务报表下载工具.py** - 财务报表下载工具（Streamlit 版本，下载三大报表）
-- **智能_从年报提取员工数量.py** - A 股智能员工数量提取（推荐，高准确率）⭐
-- **测试_从年报提取员工数量.py** - A 股年报员工数量提取（传统算法）
-- **港股_从年报提取员工数量.py** - 港股年报员工数量提取
+- **core/a_share/annual_report_downloader.py** - 年报 PDF 下载工具
+- **apps/tools/report_downloader_app.py** - 财务报表下载工具（Streamlit 版本，下载三大报表）
+- **core/a_share/employee_extractor.py** - A 股智能员工数量提取（推荐，高准确率）⭐
+- **tests/测试_从年报提取员工数量.py** - A 股年报员工数量提取（传统算法）
+- **core/hk/employee_extractor.py** - 港股年报员工数量提取
 
 ## 📖 详细文档
 
@@ -176,7 +198,7 @@ python hk_financial_analysis_full.py
 
 ```python
 # 使用命令行
-python 07_财务分析.py
+python core/a_share/financial_analysis.py
 
 # 或使用 Web 界面
 启动应用.bat
@@ -186,7 +208,7 @@ python 07_财务分析.py
 
 ```python
 # 使用命令行
-python hk_financial_analysis_full.py
+python core/hk/financial_analysis_full.py
 
 # 或使用 Web 界面
 启动港股应用.bat
@@ -289,19 +311,31 @@ for year, count in results.items():
 
 ```
 .
-├── 01-05_基础学习脚本/          # 基础学习脚本
-├── 07_财务分析.py               # A股财务分析主脚本
-├── hk_financial_analysis_full.py # 港股财务分析主脚本
+├── tutorials/                   # 基础学习脚本
+├── core/                        # 核心能力
+│   ├── a_share/
+│   │   ├── financial_analysis.py
+│   │   ├── annual_report_downloader.py
+│   │   └── employee_extractor.py
+│   ├── hk/
+│   │   ├── financial_analysis_full.py
+│   │   ├── financial_adapter.py
+│   │   ├── annual_report_downloader.py
+│   │   └── employee_extractor.py
+│   └── tools/
+│       ├── report_downloader.py
+│       ├── excel_viewer.py
+│       └── company_compare.py
+├── apps/                        # Streamlit 入口
+│   ├── a_share/
+│   ├── hk/
+│   ├── tools/
+│   └── portal/
+├── tests/                       # 测试脚本
+├── research/                    # 研究与调试脚本
 ├── 统一财务工具.py              # 统一财务工具（集成所有功能）⭐
 ├── streamlit_app.py             # A股Web界面
 ├── streamlit_app_hk.py          # 港股Web界面
-├── 财务分析Excel查看器.py        # 财务分析Excel文件查看器（新增）⭐
-├── hk_financial_adapter.py      # 港股适配层
-├── 08_下载年报PDF.py            # 年报PDF下载工具
-├── 财务报表下载工具.py          # 财务报表下载工具（Streamlit）
-├── 智能_从年报提取员工数量.py    # A股智能员工数量提取（推荐）⭐
-├── 测试_从年报提取员工数量.py      # A股员工数量提取（传统算法）
-├── 港股_从年报提取员工数量.py    # 港股员工数量提取
 ├── 启动统一财务工具.bat          # 启动统一财务工具
 ├── 启动Excel查看器.bat          # 启动Excel查看器（新增）
 ├── output/                      # 输出目录（Excel文件）
@@ -425,7 +459,7 @@ A: **这是一个已知的系统性问题，我们已提供完整解决方案**
 **结论**：虽然2020年年报无法稳定地程序化批量下载，但通过我们的混合解决方案，用户仍可获得95%以上的下载成功率。
 
 ### Q3: 如何下载年报 PDF？
-A: 使用 `08_下载年报PDF.py` 脚本，或参考相关文档。
+A: 使用 `core/a_share/annual_report_downloader.py` 脚本，或参考相关文档。
 
 ### Q4: 如何下载财务报表？
 A: 推荐使用统一财务工具：
@@ -471,7 +505,7 @@ A: 推荐使用统一财务工具：
   - **保持自动化**：其他年份继续程序下载，2020年程序仍会尝试但提供备用方案
   - **用户体验**：从简单"下载失败"升级为完整解决方案指导
 
-- ✅ **代码优化**：增强年报下载模块(`08_下载年报PDF.py`)
+- ✅ **代码优化**：增强年报下载模块（当前路径：`core/a_share/annual_report_downloader.py`，历史文件名：`08_下载年报PDF.py`）
   - **扩大搜索范围**：2020年搜索日期从2021年扩大到2022年
   - **多重搜索策略**：针对2020年添加4种特殊搜索策略
   - **编码问题修复**：解决Windows环境下Unicode字符显示问题
@@ -494,11 +528,11 @@ A: 推荐使用统一财务工具：
   - **置信度评估**：每个提取结果都有置信度评分，确保数据可靠性
   - **文档结构分析**：智能识别表格、段落等不同文档结构
   - **上下文理解**：通过上下文判断数值的真实含义
-  - **新增文件**：`智能_从年报提取员工数量.py`（推荐使用）
+  - **新增文件**：`core/a_share/employee_extractor.py`（历史文件名：`智能_从年报提取员工数量.py`，推荐使用）
 
 #### 🔧 系统集成优化
 - ✅ **统一财务工具集成**：统一财务工具现已集成智能员工数量提取算法
-  - 更新模块导入：`测试_从年报提取员工数量.py` → `智能_从年报提取员工数量.py`
+  - 更新模块导入：`tests/测试_从年报提取员工数量.py` → `core/a_share/employee_extractor.py`
   - 更新函数调用：`batch_extract_employee_count_from_pdfs` → `batch_extract_employee_count_smart`
   - 向下兼容：保留传统算法文件，确保现有流程不受影响
 

@@ -6,8 +6,5 @@ echo ========================================
 echo.
 echo 正在启动Streamlit应用...
 echo.
-
-streamlit run "财务报表下载工具.py"
-
-pause
+call "%~dp0scripts\windows\tools\启动财务报表工具.bat"
 

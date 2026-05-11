@@ -11,11 +11,16 @@ A股财务分析自动化工具
 import os
 import sys
 import importlib.util
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 import akshare as ak
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # -----------------------------
 # 页面配置
@@ -32,7 +37,8 @@ st.set_page_config(
 # -----------------------------
 def load_module(name: str, path: str):
     """动态加载模块"""
-    spec = importlib.util.spec_from_file_location(name, path)
+    module_path = ROOT / path
+    spec = importlib.util.spec_from_file_location(name, module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -500,7 +506,7 @@ if analyze_btn:
 
             # 加载PDF下载模块
             try:
-                pdf_dl = load_module("pdf_downloader", "08_下载年报PDF.py")
+                pdf_dl = load_module("pdf_downloader", "core/a_share/annual_report_downloader.py")
             except Exception as e:
                 st.error(f"❌ 加载PDF下载模块失败: {e}")
                 st.stop()
@@ -549,7 +555,7 @@ if analyze_btn:
             st.markdown("### 步骤4: 提取员工数量")
 
         try:
-            emp_module = load_module("employee_extractor", "智能_从年报提取员工数量.py")
+            emp_module = load_module("employee_extractor", "core/a_share/employee_extractor.py")
         except Exception as e:
             st.error(f"❌ 加载智能员工数量提取模块失败: {e}")
             st.stop()
@@ -671,7 +677,7 @@ if analyze_btn:
         
         # 加载财务分析模块
         try:
-            fa_module = load_module("financial_analysis", "07_财务分析.py")
+            fa_module = load_module("financial_analysis", "core/a_share/financial_analysis.py")
         except Exception as e:
             st.error(f"❌ 加载财务分析模块失败: {e}")
             st.stop()
