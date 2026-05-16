@@ -322,10 +322,10 @@ def get_hk_column_mapping(sheet_type: str) -> Dict[str, str]:
     """
     if sheet_type == '利润表':
         return {
-            # === 核心字段 ===
-            '营运收入': 'OPERATE_INCOME',  # 营业收入
-            '营业额': 'OPERATE_INCOME',  # 营业收入(备选)
-            '收入': 'OPERATE_INCOME',  # 营业收入(备选2,如互联网收入)
+            # === 核心字段（注意映射顺序：精确的排前面） ===
+            '营运收入': 'OPERATE_INCOME',  # 营业收入（优先，包含其他业务收入）
+            '收入': 'OPERATE_INCOME',  # 营业收入（备选2,如互联网收入）
+            '营业额': 'OPERATE_INCOME',  # 营业收入（备选，部分公司只有此科目）
             '股东应占溢利': 'PARENT_NETPROFIT',  # 归母净利润
             '母公司拥有人应占溢利': 'PARENT_NETPROFIT',  # 归母净利润(备选)
             '除税后溢利': 'NET_PROFIT',  # 净利润

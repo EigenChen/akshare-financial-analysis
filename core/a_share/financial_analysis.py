@@ -4,6 +4,7 @@
 从三大报表中提取和计算财务相关指标，包括营收基本数据和费用构成数据
 """
 
+import sys
 import akshare as ak
 import pandas as pd
 import os
@@ -1460,7 +1461,8 @@ def calculate_per_capita_metrics(symbol, start_year, end_year, employee_csv_path
     else:
         # 使用接口获取员工人数（所有年份使用相同值）
         symbol_clean = symbol.replace('.SZ', '').replace('.SH', '')
-        employee_count = get_employee_count(symbol_clean)
+        # 通过模块命名空间查找，以便HK模块可以monkeypatch替换
+        employee_count = sys.modules[__name__].get_employee_count(symbol_clean)
         if employee_count is None:
             print("⚠ 无法获取员工人数，人均数据将显示为 '-'")
         else:
