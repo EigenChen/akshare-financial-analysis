@@ -697,7 +697,8 @@ def get_hk_employee_count_by_year(symbol: str, start_year: int, end_year: int) -
     """
     获取港股指定年份范围的员工人数
 
-    注意:港股接口通常只返回最新一年的员工人数,历史数据可能需要从年报PDF中提取
+    注意:港股接口只返回最新一年的员工人数,历史年份数据不可获取。
+          只有当前/最近财年有员工数,历史年份返回 None。
 
     参数:
         symbol: 港股代码
@@ -705,17 +706,19 @@ def get_hk_employee_count_by_year(symbol: str, start_year: int, end_year: int) -
         end_year: 结束年份
 
     返回:
-        字典,格式为 {年份: 员工人数},如果某年份数据不可用则为None
+        字典,格式为 {年份: 员工人数},历史年份数据不可用则为None
     """
     result = {}
 
-    # 获取最新员工人数
+    # 获取最新员工人数(只有最近一年准确)
     latest_count = get_hk_employee_count(symbol)
 
-    # 目前接口只返回最新数据,所以所有年份都使用同一个值
-    # 如果需要历史数据,需要从年报PDF中提取
+    # 只有最新年份(end_year)使用获取到的员工数,历史年份留空
     for year in range(start_year, end_year + 1):
-        result[year] = latest_count
+        if year == end_year and latest_count is not None:
+            result[year] = latest_count
+        else:
+            result[year] = None  # 历史年份无数据,留空
 
     return result
 

@@ -107,7 +107,78 @@ original_get_value_from_row = financial_analysis.get_value_from_row
 financial_analysis.get_annual_data = get_annual_data_hk_wrapper
 financial_analysis.extract_year_data = extract_year_data_hk_wrapper
 financial_analysis.get_value_from_row = get_value_from_row_hk_wrapper
-financial_analysis.get_employee_count = get_hk_employee_count  # 使用港股员工人数获取函数
+
+# 港股员工数:只有最新年份有数据,历史年份留空
+# 替换 calculate_per_capita_metrics 为港股专用版本
+import pandas as pd
+
+def calculate_per_capita_metrics_hk(symbol, start_year, end_year, employee_csv_path=None):
+    """
+    港股人均数据:历史年份留空,只有最新年份有员工数
+    """
+    print("\n" + "=" * 80)
+    print(f"开始计算 {symbol} 的人均数据（{start_year}-{end_year}）")
+    print("=" * 80)
+
+    data = get_hk_annual_data(symbol, start_year, end_year)
+    if data['balance_sheet'] is None or data['profit'] is None or data['cash_flow'] is None:
+        print("✗ 资产负债表、利润表或现金流量表数据获取不完整，无法计算")
+        return None
+
+    # 按年获取员工数(只有最新年份有值,历史年份为None)
+    emp_by_year = get_hk_employee_count_by_year(symbol, start_year, end_year)
+    has_any = any(v is not None for v in emp_by_year.values())
+    if not has_any:
+        print("⚠ 无法获取任何年份的员工人数，人均数据将显示为 '-'")
+
+    metrics = {'科目': []}
+    for year in range(start_year, end_year + 1):
+        metrics[str(year)] = []
+
+    metrics['科目'] = ['人数', '人均收入（万元）', '人均归母净利润（万元）', '人均扣非净利润（万元）', '人均薪酬（万元）', '人均固定资产（万元）']
+    for year in range(start_year, end_year + 1):
+        for _ in range(6):
+            metrics[str(year)].append("-")
+
+    if not has_any:
+        return pd.DataFrame(metrics)
+
+    for year in range(start_year, end_year + 1):
+        employee_count = emp_by_year.get(year)
+        if employee_count is None:
+            continue  # 历史年份留空
+
+        profit_row = extract_year_data_hk(data['profit'], year)
+        balance_row = extract_year_data_hk(data['balance_sheet'], year)
+        if profit_row is None or balance_row is None:
+            continue
+
+        revenue = get_value_from_row_hk(profit_row, 'OPERATE_INCOME', "-")
+        parent_profit = get_value_from_row_hk(profit_row, 'PARENT_NETPROFIT', "-")
+        if revenue == "-" or parent_profit == "-":
+            continue
+
+        year_idx = year - start_year
+        metrics[str(year)][0] = employee_count
+        metrics[str(year)][1] = round(revenue / employee_count * 10000, 2)  # 亿元→万元
+        metrics[str(year)][2] = round(parent_profit / employee_count * 10000, 2)
+        metrics[str(year)][3] = "-"  # 扣非:港股不披露
+
+        # 人均薪酬:应付职工薪酬/人数
+        staff_payable = get_value_from_row_hk(balance_row, 'STAFF_SALARY_PAYABLE', 0)
+        if staff_payable == "-":
+            staff_payable = 0
+        metrics[str(year)][4] = round(staff_payable / employee_count * 10000, 2)
+
+        # 人均固定资产
+        fixed_asset = get_value_from_row_hk(balance_row, 'FIXED_ASSET', "-")
+        if fixed_asset != "-":
+            metrics[str(year)][5] = round(fixed_asset / employee_count * 10000, 2)
+
+    return pd.DataFrame(metrics)
+
+# 替换人均数据计算
+calculate_per_capita_metrics = calculate_per_capita_metrics_hk
 
 def main():
     """
@@ -221,9 +292,11 @@ def append_hk_notes_to_excel(filepath: str):
             "2. 扣非净利润：港股不披露非经常性损益，该科目显示为'不适用'",
             "3. 研发费用：港股通常合并在'行政开支'中，不单独披露",
             "4. 应付票据：港股报表格式不同，通常无此科目",
-            "5. 员工人数：港股接口只返回最新值，历史年份使用相同数据",
-            "6. 年结日：部分港股公司非12月31日年结，已自动处理",
-            "7. '-' 表示该科目在港股报表中无法获取或无法计算",
+            "5. 员工人数：港股接口只返回最新值，历史年份显示为'-'",
+            "6. 人均数据：只有最新年份有员工数，历史年份人均指标显示为'-'",
+            "7. 人均薪酬：港股资产负债表无'应付职工薪酬'科目，显示为'-'",
+            "8. 年结日：部分港股公司非12月31日年结，已自动处理",
+            "9. '-' 表示该科目在港股报表中无法获取或无法计算",
         ]
 
         for ws in wb.worksheets:
